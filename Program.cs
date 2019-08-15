@@ -4,21 +4,54 @@ using System.Collections.Generic;
 using System;
 using System.IO;
 
+/*
+    Todo:
+    - Fix bugs in the below
+    - Calculate min/max ranges
+    - When creating new FixedPoint, check whether given value lies within representable
+    range.
+    - Use more Roslyn structure, less raw string manipulation
+    - Generate some other things:
+        - Complex numbers
+        - Vectors
+        - Bezier curves
+        - Uh oh...
+
+    === Combinatorial Explosion ===
+
+    It's kind of funky to consider the Cartesian product of:
+
+    - All Qn.m types, signed, unsigned, 8, 16, 32, 64, 128 bit
+    - 2d, 3d, 4d vector and matrix types
+    - 1d, 2d, 3d, 4d, 5d; 1st, 2nd, 3rd, 4th degree Bezier curves, surfaces and volumes
+
+    Sure, you can generate the code for them all, but that's a gigantic amount of types!
+    I wonder how big the library becomes, how much it'll slow things down, and just
+    how polluted Intellisense will end up...
+    
+    Idea: Generate generic proxy types! Some valid C#, such that it compiles, and we
+    get nice intellisense, and we're not flooded with types. Then, we take that
+    code, run it through Roslyn code rewriter that replaces the proxies with
+    specific, hyper-optimized stuff.
+ */
+
 namespace CodeGeneration {
     class Program  {
+        private static string LibraryName = "FixedPoint";
         private static string OutputPath = "output/";
+        private static string SecondaryOutputPath = "E:/code/unity/BurstDynamics/Assets/Plugins/FixedPoint";
 
         public static void Main(string[] args) {
+            Console.WriteLine("Let's generate some code...");
+
             if (!Directory.Exists(OutputPath)) {
                 Directory.CreateDirectory(OutputPath);
             }
-            Console.WriteLine("Let's generate some code!");
 
             var syntraxTrees = new List<SyntaxTree>();
-            syntraxTrees.Add(MyGenerator.GenerateFixedPointType(15, 16));
-            syntraxTrees.Add(MyGenerator.GenerateFixedPointType(14, 17));
-            syntraxTrees.Add(MyGenerator.GenerateFixedPointType(13, 18));
-            syntraxTrees.Add(MyGenerator.GenerateFixedPointType(12, 19));
+            for (int fractionalBits = 0; fractionalBits < 31; fractionalBits++) {
+                syntraxTrees.Add(MyGenerator.GenerateFixedPointType(fractionalBits));
+            }
 
             var references = ReferenceLoader.Load();
 
@@ -29,19 +62,27 @@ namespace CodeGeneration {
                 references: references,
                 compilationOptions);
 
+            var dllName = LibraryName + ".dll";
+            var pdbName = LibraryName + ".pdb";
+            var dllOutputPath = Path.Join(OutputPath, dllName);
+            var pdbOutputPath = Path.Join(OutputPath, pdbName);
             var emitResult = compilation.Emit(
-                Path.Join(OutputPath, "FixedPoint.dll"),
-                Path.Join(OutputPath, "FixedPoint.pdb"));
+                dllOutputPath,
+                pdbOutputPath);
 
             //If our compilation failed, we can discover exactly why.
             if (!emitResult.Success) {
-                Console.WriteLine("Code generation FAILED! Errors:");
+                Console.WriteLine("Code generation failed! Errors:");
                 foreach (var diagnostic in emitResult.Diagnostics) {
                     Console.WriteLine(diagnostic.ToString());
                 }
+                return;
             }
 
-            Console.WriteLine("Done!");
+            File.Copy(dllOutputPath, Path.Join(SecondaryOutputPath, dllName), true);
+            File.Copy(pdbOutputPath, Path.Join(SecondaryOutputPath, pdbName), true);
+
+            Console.WriteLine("Compilation was succesful!");
         }
     }
 
@@ -70,8 +111,9 @@ namespace CodeGeneration {
     }
 
     public static class MyGenerator {
-        public static SyntaxTree GenerateFixedPointType(in int integerBits, in int fractionalBits) {
+        public static SyntaxTree GenerateFixedPointType(in int fractionalBits) {
             const int wordLength = 32;
+            int integerBits = wordLength - 1 - fractionalBits;
             if (integerBits + fractionalBits != wordLength-1) {
                 throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength-1));
             }
