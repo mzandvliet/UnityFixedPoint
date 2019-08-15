@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>netcoreapp2.2</TargetFramework>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Runtime.Loader" Version="4.3.0"/>
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="3.2.1"/>
+    <PackageReference Include="Microsoft.Net.Compilers" Version="3.2.1"/>
+  </ItemGroup>
+</Project>
