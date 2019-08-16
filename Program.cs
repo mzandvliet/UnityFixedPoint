@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using System.Collections.Generic;
 using System;
 using System.IO;
+using System.Text;
 
 /*
     Todo:
@@ -71,11 +72,11 @@ namespace CodeGeneration {
             var compilationOptions = new CSharpCompilationOptions(
                 outputKind: OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Debug,
-                allowUnsafe: false);
+                allowUnsafe: true);
             var compilation = CSharpCompilation.Create(
                 "FixedPointTypesCompilation",
                 syntaxTrees,
-                references: references,
+                references,
                 compilationOptions);
 
             // and output dll and pdb to disk
@@ -118,14 +119,17 @@ namespace CodeGeneration {
     public static class ReferenceLoader {
         private static readonly string[] paths = new string[] {
             "C:/Program Files/Unity/Hub/Editor/2019.2.0f1/Editor/Data/Managed/UnityEngine/UnityEngine.dll",
+            "C:/Program Files/Unity/Hub/Editor/2019.2.0f1/Editor/Data/Managed/UnityEngine/UnityEngine.CoreModule.dll",
+
             "E:/code/unity/BurstDynamics/Library/ScriptAssemblies/Unity.Burst.dll",
             "E:/code/unity/BurstDynamics/Library/ScriptAssemblies/Unity.Jobs.dll",
             "E:/code/unity/BurstDynamics/Library/ScriptAssemblies/Unity.Collections.dll",
             "E:/code/unity/BurstDynamics/Library/ScriptAssemblies/Unity.Mathematics.dll",
             "E:/code/unity/BurstDynamics/Library/PackageCache/com.unity.burst@1.1.2/Unity.Burst.Unsafe.dll",
+            "E:/code/unity/BurstDynamics/Library/PackageCache/com.unity.collections@0.1.1-preview/System.Runtime.CompilerServices.Unsafe.dll",
+
             "C:/Program Files/Unity/Hub/Editor/2019.2.0f1/Editor/Data/MonoBleedingEdge/lib/mono/4.7.1-api/mscorlib.dll",
             "C:/Program Files/Unity/Hub/Editor/2019.2.0f1/Editor/Data/MonoBleedingEdge/lib/mono/4.7.1-api/System.dll",
-            "E:/code/unity/BurstDynamics/Library/PackageCache/com.unity.collections@0.1.1-preview/System.Runtime.CompilerServices.Unsafe.dll",
         };
 
         public static IList<PortableExecutableReference> Load() {
@@ -140,6 +144,46 @@ namespace CodeGeneration {
     }
 
     public static class FixedPointGenerator {
+        private static string GenerateSignBitMaskLiteral(int wordLength) {
+            var maskBuilder = new StringBuilder();
+
+            maskBuilder.Append("0b");
+            maskBuilder.Append("1");
+            for (int i = 1; i < wordLength; i++) {
+                if (i > 0 && i % 4 == 0) {
+                    maskBuilder.Append("_");
+                }
+                maskBuilder.Append("0");
+            }
+
+            return maskBuilder.ToString();
+        }
+
+        private static string GenerateFractionalMaskLiteral(int wordLength, int fractionalBits) {
+            var maskBuilder = new StringBuilder();
+
+            int integerBits = wordLength - 1 - fractionalBits;
+            if (integerBits + fractionalBits != wordLength - 1) {
+                throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - 1));
+            }
+
+            maskBuilder.Append("0b");
+            for (int i = 0; i < integerBits+1; i++) {
+                if (i > 0 && i % 4 == 0) {
+                    maskBuilder.Append("_");
+                }
+                maskBuilder.Append("0");
+            }
+            for (int i = integerBits+1; i < wordLength; i++) {
+                if (i > 0 && i % 4 == 0) {
+                    maskBuilder.Append("_");
+                }
+                maskBuilder.Append("1");
+            }
+
+            return maskBuilder.ToString();
+        }
+
         public static (string, SyntaxTree) GenerateSigned32BitType(in int fractionalBits) {
             const int wordLength = 32;
             int integerBits = wordLength - 1 - fractionalBits;
@@ -149,6 +193,13 @@ namespace CodeGeneration {
             
             string typeName = string.Format("q{0}_{1}", integerBits, fractionalBits);
 
+            string signBitMask = GenerateSignBitMaskLiteral(wordLength);
+            string fractionalBitMask = GenerateFractionalMaskLiteral(wordLength, fractionalBits);
+
+            Console.WriteLine(typeName);
+            Console.WriteLine("signMask: " + signBitMask);
+            Console.WriteLine("fracMask: " + fractionalBitMask);
+            
             // Todo: generate the mask values for each type
         
             string code = $@"
@@ -164,9 +215,8 @@ public struct {typeName}
 {{
     public const int Scale = {fractionalBits};
     const int HalfScale = Scale >> 1;
-    const int SignMask = unchecked((int)0x80000000);
-    const int FractionMask = unchecked((int)((0xFFFFFFFF >> ({wordLength} - Scale))));
-    const int NegativeFracPadding = unchecked((int)0xFFFF0000);
+    const int SignMask = unchecked((int){signBitMask});
+    const int FractionMask = unchecked((int){fractionalBitMask});
     const int IntegerMask = ~FractionMask;
 
     public static readonly {typeName} Zero = new {typeName}(0);
@@ -174,7 +224,7 @@ public struct {typeName}
     [FieldOffset(0)]
     public int v;
 
-   // constructors
+    // constructors
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public {typeName}(int x) {{
@@ -193,8 +243,13 @@ public struct {typeName}
 
     // Fractional part
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static {typeName} Fract({typeName} f) {{
-        return new {typeName}((f.v << Scale) >> Scale);
+    public static {typeName} Frac({typeName} f) {{
+        if ((f.v & SignMask) != 0) {{
+            return new {typeName}((f.v & FractionMask) | IntegerMask);
+        }}
+        return new {typeName}(f.v & FractionMask);
+
+        // return new {typeName}((f.v << (Scale-1)) >> (Scale-1));
     }}
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -291,6 +346,12 @@ public struct {typeName}
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public string ToString(string format, IFormatProvider formatProvider) {{
         return string.Format(""{typeName}({{0}})"", ToDouble(this));
+    }}
+
+    private static string ToBinaryString(int value) {{
+        string b = Convert.ToString(value, 2);
+        b = b.PadLeft(32, '0');
+        return b;
     }}
 }}
 ";
