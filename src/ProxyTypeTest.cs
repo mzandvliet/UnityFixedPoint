@@ -54,6 +54,7 @@ public enum ScalarType {
     q15_16
 }
 
+
 public struct Scalar<ScalarType> {
     public const int Scale = 16;
     public int v;
@@ -69,6 +70,16 @@ public struct Scalar<ScalarType> {
 }
 
 public class ScalarTypeRewriter : CSharpSyntaxRewriter {
+    private Dictionary<ScalarType, TypeSyntax> _typeMap;
+
+    public ScalarTypeRewriter() {
+        _typeMap = new Dictionary<ScalarType, TypeSyntax>();
+        var typeNames = Enum.GetNames(typeof(ScalarType));
+        foreach (var name in typeNames) {
+            _typeMap.Add((ScalarType)Enum.Parse(typeof(ScalarType), name), SF.ParseTypeName("q15_16"));
+        }
+    }
+
     // public override SyntaxNode Visit(SyntaxNode node) {
     //     if (node == null) {
     //         Console.WriteLine("Warning: visiting a node which is null...");
@@ -92,8 +103,23 @@ public class ScalarTypeRewriter : CSharpSyntaxRewriter {
             Console.WriteLine("    - " + typeArg.ToFullString());
         }
 
+        if (node.TypeArgumentList.Arguments.Count != 1) {
+            Console.WriteLine(string.Format("Error: Unexpected TypeArgument count {0} for ScalarType, there should be only one.", node.TypeArgumentList.Arguments.Count));
+            return node;
+        }
+
+        ScalarType scalarType;
+        try {
+            scalarType = (ScalarType)Enum.Parse(typeof(ScalarType), node.TypeArgumentList.Arguments[0].ToFullString());
+        } catch(Exception e) {
+            Console.WriteLine(string.Format("Error: Type argument {0} not recognized as valid ScalarType. Reason:\n{1}", node.TypeArgumentList.Arguments[0], e.Message));
+            return node;
+        }
+        
+        var replacementNode = _typeMap[scalarType];
+
         base.VisitGenericName(node);
-        return node;
+        return replacementNode;
     }
 }
 
@@ -110,8 +136,6 @@ public static class ProxyTypeTest {
                     Debug.Log(c);
                 }}
             }}";
-
-        
 
         var tree = CSharpSyntaxTree.ParseText(originalCode);
 
