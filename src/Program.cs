@@ -58,10 +58,16 @@ namespace CodeGeneration {
 
         public static void Main(string[] args) {
             Console.WriteLine("Let's generate some code...");
+            Console.WriteLine();
 
             // GenerateCode();
+            // ProxyTypeTest.RewriteScalarTypeTest();
 
-            ProxyTypeTest.RewriteScalarTypeTest();
+            var type = VectorTypeGenerator.GenerateSigned32BitType("q15_16", 3);
+            Console.WriteLine(type.Item2.GetRoot().NormalizeWhitespace().ToFullString());
+
+            Console.WriteLine();
+            Console.WriteLine("Compilation was succesful!");
         }
 
 
@@ -137,8 +143,6 @@ namespace CodeGeneration {
                     textWriter.Close();
                 }
             }
-
-            Console.WriteLine("Compilation was succesful!");
         }
     }
 
