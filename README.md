@@ -17,7 +17,7 @@ Code generation through Roslyn seems the best way to realize these features, the
 
 --
 
-As of 20-08-19 this is completely work-in-progress and not directly usable. I'm currently able to generate snippets like the following though:
+As of 20-08-19 this is completely work-in-progress and not easily usable. I'm currently able to generate code like the following though:
 
 ```csharp
 using System.Runtime.CompilerServices;
