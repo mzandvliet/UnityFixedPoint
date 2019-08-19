@@ -24,6 +24,46 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using Unity.Mathematics;
+
+namespace Ramjet.Math.FixedPoint
+{
+    [StructLayout(LayoutKind.Explicit)]
+    public struct q15_16
+    {
+        public const Int32 Scale = 16;
+        private const Int32 HalfScale = Scale >> 1;
+        private const Int32 SignMask = unchecked((Int32)0b1000_0000_0000_0000_0000_0000_0000_0000);
+        private const Int32 FractionMask = unchecked((Int32)0b0000_0000_0000_0000_1111_1111_1111_1111);
+        private const Int32 IntegerMask = ~FractionMask;
+        public static readonly q15_16 Zero = new q15_16(0);
+        public static readonly q15_16 One = FromInt(1);
+        public static readonly q15_16 Epsilon = new q15_16(1);
+        [FieldOffset(0)]
+        public Int32 v;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public q15_16(Int32 x)
+        {
+            v = x;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static q15_16 FromInt(int x)
+        {
+            return new q15_16(x << Scale);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int ToInt(q15_16 f)
+        {
+            return f.v >> Scale;
+        }
+
+[...]
+
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using UnityEngine;
+using Unity.Mathematics;
 using Ramjet.Math.FixedPoint;
 
 namespace Ramjet.Math.LinearAlgebra
@@ -56,8 +96,9 @@ namespace Ramjet.Math.LinearAlgebra
         {
             return new vec3_q15_16(lhs.x * rhs.x + lhs.y * rhs.y + lhs.z * rhs.z);
         }
-    }
-}
+
+[...]
+
 ```
 
 Which is an instance of a 3-dimensional vector type from linear algebra, using the q15_16 fixed point scalar type, generated from a single parameterized struct template.
