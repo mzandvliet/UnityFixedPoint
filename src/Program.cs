@@ -39,7 +39,8 @@ using System.Text;
     code, run it through Roslyn code rewriter that replaces the proxies with
     specific, hyper-optimized stuff.
 
-    
+    Goal: Allow library user to write code against Scalar type, such that it works
+    for any specific field. A lot like how Rust has TypeClasses.
 
     ------
 
@@ -58,7 +59,9 @@ namespace CodeGeneration {
         public static void Main(string[] args) {
             Console.WriteLine("Let's generate some code...");
 
-            GenerateCode();
+            // GenerateCode();
+
+            ProxyTypeTest.RewriteScalarTypeTest();
         }
 
 
