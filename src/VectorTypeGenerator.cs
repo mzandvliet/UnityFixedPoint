@@ -18,8 +18,8 @@ namespace CodeGeneration {
             "w"
         };
 
-        public static (string, SyntaxTree) GenerateSigned32BitType(string scalarTypeName, in uint numDimensions) {
-            if (numDimensions == 0 || numDimensions > 4) {
+        public static (string, SyntaxTree) GenerateSigned32BitType(string scalarTypeName, in int numDimensions) {
+            if (numDimensions <= 0 || numDimensions > 4) {
                 throw new ArgumentException("Vector types currently only support 1-4 dimensions");
             }
 
@@ -152,12 +152,22 @@ namespace CodeGeneration {
             //         );
             //     }}");
 
-            // // Todo: division is mul(a, conjugate(b))
-
             // type = type.AddMembers(
             //     opAdd,
             //     opSub,
             //     opMul);
+
+            var dotInstructions = coefficientFields.Select((coeff, index) => $@"lhs.{CoefficientNames[index]} * rhs.{CoefficientNames[index]}")
+                .Aggregate((a, b) => a + " +\n" + b);
+            var dotProduct = SF.ParseMemberDeclaration($@"
+               [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {typeName} dot({typeName} lhs, {typeName} rhs) {{
+                    return new {typeName}(
+                        {dotInstructions}
+                    );
+                }}");
+
+            type = type.AddMembers(dotProduct);
 
             // /* Equality */
 
