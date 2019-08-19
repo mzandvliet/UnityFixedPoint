@@ -16,6 +16,8 @@ using System.Text;
         - Vectors
         - Bezier curves
         - Uh oh...
+        - Burst jobs
+        
     - Use typeclasses to encapsulate +, -, *, /, avoiding boilerplate
 
     === Combinatorial Explosion ===
@@ -47,6 +49,13 @@ namespace CodeGeneration {
         public static void Main(string[] args) {
             Console.WriteLine("Let's generate some code...");
 
+            ExampleClassGenerator.Generate();
+
+            // GenerateCode();
+        }
+
+
+        private static void GenerateCode() {
             // Ensure directory structure
             if (!Directory.Exists(OutputPathLib)) {
                 Directory.CreateDirectory(OutputPathLib);
@@ -118,7 +127,7 @@ namespace CodeGeneration {
                     textWriter.Close();
                 }
             }
-            
+
             Console.WriteLine("Compilation was succesful!");
         }
     }
