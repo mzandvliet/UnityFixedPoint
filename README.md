@@ -13,6 +13,8 @@ However, the C# language is not expressive enough to comfortably write all possi
 - Parameterizing a type by cardinal numbers (such as the number of fractional bits, or the dimensions of a vector)
 - Typeclasses, or Traits (more powerful version of interfaces, needed to express Field{Add,Sub,Mul,Div,AddInv,MulInv})
 
+I then also want to use the generated types as building blocks for other objects, such as: *Vector<q15_16, 3>, Complex<q1_7>, Matrix4x4<q3_13>*, and so on.
+
 Code generation through Roslyn seems the best way to realize these features, then.
 
 --
