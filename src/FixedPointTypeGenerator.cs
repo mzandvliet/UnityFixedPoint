@@ -51,21 +51,6 @@ namespace CodeGeneration {
             return maskBuilder.ToString();
         }
 
-        private static SyntaxList<AttributeListSyntax> GenerateAttributes() {
-            return SF.SingletonList(
-                SF.AttributeList(
-                    SF.SingletonSeparatedList(
-                        SF.Attribute(SF.IdentifierName("StructLayout"))
-                            .WithArgumentList(
-                                SF.AttributeArgumentList(
-                                    SF.SingletonSeparatedList(
-                                        SF.AttributeArgument(
-                                            SF.MemberAccessExpression(
-                                                SK.SimpleMemberAccessExpression,
-                                                SF.IdentifierName("LayoutKind"),
-                                                SF.IdentifierName("Explicit")))))))));
-        }
-
         /*
             Todo:
             - Find out the difference between .WithX and .AddX
@@ -98,11 +83,11 @@ namespace CodeGeneration {
             var unit = SF.CompilationUnit()
                 .WithUsings(usings);
 
-            var nameSpace = SF.NamespaceDeclaration(SF.ParseName("FixedPoint"));
+            var nameSpace = SF.NamespaceDeclaration(SF.ParseName("Ramjet.Math.FixedPoint"));
 
             var type = SF.StructDeclaration(typeName)
                 .AddModifiers(SF.Token(SK.PublicKeyword))
-                .WithAttributeLists(GenerateAttributes());
+                .WithAttributeLists(Utils.GenerateStructLayoutAttributes());
 
             // Constants
 
@@ -117,6 +102,15 @@ namespace CodeGeneration {
             var integerMask = SF.ParseMemberDeclaration(
                 $@"private const {wordType} IntegerMask = ~FractionMask;");
 
+            var zero = SF.ParseMemberDeclaration(
+                $@"public static readonly {typeName} Zero = new {typeName}(0);");
+
+            var one = SF.ParseMemberDeclaration(
+                $@"public static readonly {typeName} One = FromInt(1);");
+
+            var epsilon = SF.ParseMemberDeclaration(
+                $@"public static readonly {typeName} Epsilon = new {typeName}(1);");
+
             // Value field
 
             var intValue = SF.ParseMemberDeclaration(
@@ -129,6 +123,9 @@ namespace CodeGeneration {
                 signMask,
                 fractionMask,
                 integerMask,
+                zero,
+                one,
+                epsilon,
                 intValue);
 
             // Constructors
@@ -368,61 +365,5 @@ namespace CodeGeneration {
 
             return (typeName, CSharpSyntaxTree.Create(unit));
         }
-
-        public static void RewriteScalarTypeTest() {
-            /*
-                Idea: Surrogate Scalar Type
-
-                Clients write their code using a single type.
-                Easy to use, tracks the relevant things, etc.
-
-                It's valid C#.
-
-                An analyzer could read along and track
-                precision for you, give hints, or ask
-                you to specify expected min/max ranges.
-
-                Then at compilation, a switcheroo!
-                
-                The client code is fed into a rewriter that
-                replaces the surrogate type with dedicated
-                fixed point types, generating only those
-                that are actually in use.
-
-                Downsides:
-                - Locks clients into using an IDE that
-                supports the analyzer & compiler.
-             */
-            string originalCode = $@"public void AddNumbers() {{
-                var a = Scalar<q15_16>.FromInt(5);
-                var b = Scalar<q15_16>.FromInt(4);
-
-                var c = a + b;
-                Debug.Log(c);
-            }}";
-            
-            var unit = SF.ParseCompilationUnit(originalCode);
-
-            // Todo: the actual stuff, heh
-        }
     }
-}
-
-
-
-public enum ScalarType {
-    q15_16
-}
-
-public struct Scalar<ScalarType> {
-    public const int Scale = 16;
-    public int v;
-
-    public Scalar(int i) {
-        v = i;
-    }
-
-    public static Scalar<ScalarType> operator *(Scalar<ScalarType> lhs, Scalar<ScalarType> rhs) {{
-        return new Scalar<ScalarType>((int)(((long) lhs.v* (long) rhs.v) >> Scale));
-    }}
 }

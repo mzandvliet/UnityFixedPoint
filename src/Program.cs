@@ -10,15 +10,17 @@ using System.Text;
     - Calculate min/max ranges
     - When creating new FixedPoint, check whether given value lies within representable
     range.
-    - Use more Roslyn structure, less raw string manipulation
     - Generate some other things:
         - Complex numbers
         - Vectors
         - Bezier curves
         - Uh oh...
         - Burst jobs
-        
     - Use typeclasses to encapsulate +, -, *, /, avoiding boilerplate
+        - Linear algebra works over fields, fields always behave the same way
+        - Can automatically generate operator implementations and such, since
+        addition is linear over all coefficients
+    - More localized compiler error reporting
 
     === Combinatorial Explosion ===
 
@@ -36,6 +38,8 @@ using System.Text;
     get nice intellisense, and we're not flooded with types. Then, we take that
     code, run it through Roslyn code rewriter that replaces the proxies with
     specific, hyper-optimized stuff.
+
+    
 
     ------
 
