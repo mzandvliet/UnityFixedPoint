@@ -8,7 +8,7 @@ I want to use fixed point arithmetic for the following reasons:
 - Deterministic numerical calculations across all DotNet platforms
 - More control over precision (instead of just chucking 32-bit floats at a problem)
 
-However, the C# language is not expressive enough to comfortably write all possible variants of fixed point types. Ideally you would be free to specify where the binary point lies, for wordlengths ranging from 8 to 128 bits. However, the language misses these features:
+However, the C# language is not expressive enough to comfortably write all possible variants of fixed point types. Ideally you would be free to specify where the binary point should lie on a case-by-case basis, with wordlengths ranging from 8 to 128 bits. However, the language misses some features that would make this feasible:
 
 - Parameterizing a type by cardinal numbers (such as the number of fractional bits, or the dimensions of a vector)
 - Typeclasses, or Traits (more powerful version of interfaces, needed to express Field{Add,Sub,Mul,Div,AddInv,MulInv})
