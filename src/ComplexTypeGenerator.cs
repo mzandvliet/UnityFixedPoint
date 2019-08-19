@@ -17,12 +17,13 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using UnityEngine;
 using Unity.Mathematics;
+using FixedPoint;
 
 [System.Serializable]
 [StructLayout(LayoutKind.Explicit)]
 public struct {typeName}
 {{
-    public static readonly {typeName} Zero = new {typeName}(0,0);
+    public static readonly {typeName} Zero = {typeName}.FromInt(0,0);
 
     [FieldOffset(0)]
     public {scalarTypeName} r;
@@ -38,15 +39,24 @@ public struct {typeName}
     }}
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public {typeName}(float r, float i) {{
-        this.r = new {scalarTypeName}(r);
-        this.i = new {scalarTypeName}(i);
+    public static {typeName} FromInt(int r, int i) {{
+        return new {typeName}(
+            {scalarTypeName}.FromInt(r),
+            {scalarTypeName}.FromInt(i));
     }}
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public {typeName}(double r, double i) {{
-        this.r = new {scalarTypeName}(r);
-        this.i = new {scalarTypeName}(i);
+    public static {typeName} FromFloat(float r, float i) {{
+        return new {typeName}(
+            {scalarTypeName}.FromFloat(r),
+            {scalarTypeName}.FromFloat(i));
+    }}
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static {typeName} FromDouble(double r, double i) {{
+        return new {typeName}(
+            {scalarTypeName}.FromDouble(r),
+            {scalarTypeName}.FromDouble(i));
     }}
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -36,22 +36,25 @@ using System.Text;
     get nice intellisense, and we're not flooded with types. Then, we take that
     code, run it through Roslyn code rewriter that replaces the proxies with
     specific, hyper-optimized stuff.
+
+    ------
+
+    Useful for finding roslyn structures
+    http://roslynquoter.azurewebsites.net
  */
 
 namespace CodeGeneration {
     class Program  {
         private const string LibraryName = "FixedPoint";
-        private const string OutputPathLib = "../output/";
-        private const string OutputPathSource = "../output/src/";
+        private const string OutputPathLib = "output/";
+        private const string OutputPathSource = "output/src/";
         private const string OutputPathLibSecondary = "E:/code/unity/BurstDynamics/Assets/Plugins/FixedPoint";
         private const bool EmitSourceCode = true;
 
         public static void Main(string[] args) {
             Console.WriteLine("Let's generate some code...");
 
-            ExampleClassGenerator.Generate();
-
-            // GenerateCode();
+            GenerateCode();
         }
 
 
@@ -67,7 +70,7 @@ namespace CodeGeneration {
             // Generate 32-bit fixed point types
             var typeNames = new List<string>();
             var syntaxTrees = new List<SyntaxTree>();
-            for (int fractionalBits = 0; fractionalBits < 31; fractionalBits++) {
+            for (int fractionalBits = 0; fractionalBits < 32; fractionalBits++) {
                 // Todo: instead of having typename separate, figure out how to
                 // extract it from the returned syntax tree
                 (string typeName, SyntaxTree tree) = FixedPointTypeGenerator.GenerateSigned32BitType(fractionalBits);
@@ -121,7 +124,7 @@ namespace CodeGeneration {
             // useful for debugging
             if (EmitSourceCode) {
                 for (int i = 0; i < syntaxTrees.Count; i++) {
-                    var code = syntaxTrees[i].GetText();
+                    var code = syntaxTrees[i].GetCompilationUnitRoot().NormalizeWhitespace().ToFullString();
                     var textWriter = File.CreateText(Path.Join(OutputPathSource, typeNames[i] + ".cs"));
                     textWriter.Write(code);
                     textWriter.Close();
