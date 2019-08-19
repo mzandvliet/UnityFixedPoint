@@ -21,6 +21,11 @@
     Downsides:
     - Locks clients into using an IDE that
     supports the analyzer & compiler.
+    - WILL BREAK DEBUGGERS
+        - E.g. Unity debugger will fire up while
+        expecting the unmodified code. I suspect
+        it will mostly work, until you try interacting
+        with code paths using Scalar<ScalarType>.
 
     --
 
