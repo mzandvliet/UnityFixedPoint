@@ -46,9 +46,6 @@ namespace CodeGeneration {
                 .AddModifiers(SF.Token(SK.PublicKeyword))
                 .WithAttributeLists(Utils.GenerateStructLayoutAttributes());
 
-            // Constants
-
-            
 
             var coefficientFields = new List<MemberDeclarationSyntax>();
 
@@ -75,13 +72,15 @@ namespace CodeGeneration {
             type = type.AddMembers(
                 constructor);
 
-            // var fromInt = SF.ParseMemberDeclaration($@"
-            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            //     public static {typeName} FromInt(int r, int i) {{
-            //         return new {typeName}(
-            //             {scalarTypeName}.FromInt(r),
-            //             {scalarTypeName}.FromInt(i));
-            //     }}");
+            var fromIntArgs = coefficientFields.Select((coeff, index) => $@"int {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
+            var fromIntAssignments = coefficientFields.Select((coeff, index) => $@"{scalarTypeName}.FromInt({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
+            var fromInt = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {typeName} FromInt({fromIntArgs}) {{
+                    return new {typeName}(
+                        {fromIntAssignments}
+                    );
+                }}");
 
             // var toInt2 = SF.ParseMemberDeclaration($@"
             //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -123,13 +122,14 @@ namespace CodeGeneration {
             //             {scalarTypeName}.ToDouble(f.i));
             //     }}");
 
-            // type = type.AddMembers(
-            //     fromInt,
-            //     toInt2,
-            //     fromFloat,
-            //     toFloat2,
-            //     fromDouble,
-            //     toDouble2);
+            type = type.AddMembers(
+                fromInt
+            );
+                // toInt2,
+                // fromFloat,
+                // toFloat2,
+                // fromDouble,
+                // toDouble2);
 
             // var opAdd = SF.ParseMemberDeclaration($@"
             //    [MethodImpl(MethodImplOptions.AggressiveInlining)]

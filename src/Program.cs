@@ -10,12 +10,13 @@ using System.Text;
     - Calculate min/max ranges
     - When creating new FixedPoint, check whether given value lies within representable
     range.
+    - Optional overflow handling
     - Generate some other things:
         - Complex numbers
         - Vectors
         - Bezier curves
-        - Uh oh...
         - Burst jobs
+        - Uh oh...
     - Use typeclasses to encapsulate +, -, *, /, avoiding boilerplate
         - Linear algebra works over fields, fields always behave the same way
         - Can automatically generate operator implementations and such, since
@@ -26,8 +27,8 @@ using System.Text;
 
     It's kind of funky to consider the Cartesian product of:
 
-    - All Qn.m types, for signed, unsigned, 8, 16, 32, 64, 128 bit
-    - 2d, 3d, 4d vector and matrix types
+    - All qn.m types, for signed, unsigned, 8, 16, 32, 64, 128 bit
+    - 2d, 3d, 4d, n-d vector and matrix types
     - 1d, 2d, 3d, 4d, 5d; 1st, 2nd, 3rd, 4th degree Bezier curves, surfaces and volumes
 
     Sure, you can generate the code for them all, but that's a gigantic amount of types!
@@ -41,6 +42,8 @@ using System.Text;
 
     Goal: Allow library user to write code against Scalar type, such that it works
     for any specific field. A lot like how Rust has TypeClasses.
+
+    Trying this in ProxyTypeTest.cs. Could work, but has some serious downsides.
 
     ------
 
@@ -60,18 +63,22 @@ namespace CodeGeneration {
             Console.WriteLine("Let's generate some code...");
             Console.WriteLine();
 
-            // GenerateCode();
+            GenerateFixedPointTypes();
+
             // ProxyTypeTest.RewriteScalarTypeTest();
 
-            var type = VectorTypeGenerator.GenerateSigned32BitType("q15_16", 3);
-            Console.WriteLine(type.Item2.GetRoot().NormalizeWhitespace().ToFullString());
+            // Testing some linear algebra types, which need a lot of work
+            var vectorType = VectorTypeGenerator.GenerateSigned32BitType("q15_16", 3);
+            Console.WriteLine(vectorType.Item2.GetRoot().NormalizeWhitespace().ToFullString());
+
+            var matrixType = MatrixTypeGenerator.GenerateSigned32BitType("q15_16", 4, 4);
+            Console.WriteLine(matrixType.Item2.GetRoot().NormalizeWhitespace().ToFullString());
 
             Console.WriteLine();
             Console.WriteLine("Compilation was succesful!");
         }
 
-
-        private static void GenerateCode() {
+        private static void GenerateFixedPointTypes() {
             // Ensure directory structure
             if (!Directory.Exists(OutputPathLib)) {
                 Directory.CreateDirectory(OutputPathLib);
@@ -92,6 +99,7 @@ namespace CodeGeneration {
             }
 
             // Generate a few complex number types based on fixed point
+            // todo: move this elsewhere
             for (int i = 0; i < 4; i++) {
                 (string typeName, SyntaxTree tree) = ComplexTypeGenerator.GenerateSigned32BitType(typeNames[16 + i * 4]);
                 typeNames.Add(typeName);
