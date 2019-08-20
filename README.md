@@ -11,7 +11,7 @@ I want to use fixed point arithmetic for the following reasons:
 However, the C# language is not expressive enough to comfortably write all possible variants of fixed point types. Ideally you would be free to specify where the binary point should lie on a case-by-case basis, with wordlengths ranging from 8 to 128 bits. However, the language misses some features that would make this feasible:
 
 - Parameterizing a type by cardinal numbers (such as the number of fractional bits, or the dimensions of a vector)
-- Typeclasses, or Traits (more powerful version of interfaces, needed to express Field{Add,Sub,Mul,Div,AddInv,MulInv})
+- Typeclasses, or Traits (more powerful version of interfaces, needed to express e.g. Field{Add,Sub,Mul,Div,AdditiveInv,MultiplicativeInv})
 
 I also want to use the generated types as building blocks for other objects, such as: *Vector<q15_16, 3>, Complex<q1_7>, Matrix4x4<q3_13>*, and so on, while still yielding code that is easy to use, maintain, and performs optimally.
 
