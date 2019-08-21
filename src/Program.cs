@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System;
 using System.IO;
 using System.Text;
+using System.Linq;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 /*
     Todo:
@@ -17,11 +19,13 @@ using System.Text;
         - Bezier curves
         - Burst jobs
         - Uh oh...
-    - Use typeclasses to encapsulate +, -, *, /, avoiding boilerplate
-        - Linear algebra works over fields, fields always behave the same way
-        - Can automatically generate operator implementations and such, since
-        addition is linear over all coefficients
+    - Use traits to encapsulate +, -, *, /, avoiding boilerplate
+        - Scalar fields
+        - Vector fields
+        - etc.
     - More localized compiler error reporting
+    - Roslyn Analyzer that checks dataflow through client code, tracking
+    precision in terms of min/max ranges, reports on it in-line.
 
     === Combinatorial Explosion ===
 
@@ -53,17 +57,20 @@ using System.Text;
 
 namespace CodeGeneration {
     class Program  {
-        private const string LibraryName = "FixedPoint";
+        private const string LibraryNameFixedPoint = "FixedPoint";
+        private const string LibraryNameComplex = "Complex";
+        private const string LibraryNameLinearAlgebra = "LinearAlgebra";
         private const string OutputPathLib = "output/";
         private const string OutputPathSource = "output/src/";
-        private const string OutputPathLibSecondary = "E:/code/unity/BurstDynamics/Assets/Plugins/FixedPoint";
+        private const string OutputPathLibSecondary = "E:/code/unity/BurstDynamics/Assets/Plugins/RamjetMath";
         private const bool EmitSourceCode = true;
 
         public static void Main(string[] args) {
             Console.WriteLine("Let's generate some code...");
             Console.WriteLine();
 
-            GenerateFixedPointTypes();
+            var fixedPointTypes = GenerateFixedPointTypes(LibraryNameFixedPoint);
+            var complexTypes = GenerateComplexTypes(LibraryNameComplex, fixedPointTypes);
 
             // ProxyTypeTest.RewriteScalarTypeTest();
 
@@ -71,14 +78,14 @@ namespace CodeGeneration {
             var vectorType = VectorTypeGenerator.GenerateSigned32BitType("q15_16", 3);
             Console.WriteLine(vectorType.Item2.GetRoot().NormalizeWhitespace().ToFullString());
 
-            var matrixType = MatrixTypeGenerator.GenerateSigned32BitType("q15_16", 4, 4);
-            Console.WriteLine(matrixType.Item2.GetRoot().NormalizeWhitespace().ToFullString());
+            // var matrixType = MatrixTypeGenerator.GenerateSigned32BitType("q15_16", 4, 4);
+            // Console.WriteLine(matrixType.Item2.GetRoot().NormalizeWhitespace().ToFullString());
 
             Console.WriteLine();
-            Console.WriteLine("Compilation was succesful!");
+            Console.WriteLine("All done!");
         }
 
-        private static void GenerateFixedPointTypes() {
+        private static List<(string typeName, SyntaxTree tree)> GenerateFixedPointTypes(string libName) {
             // Ensure directory structure
             if (!Directory.Exists(OutputPathLib)) {
                 Directory.CreateDirectory(OutputPathLib);
@@ -87,23 +94,13 @@ namespace CodeGeneration {
                 Directory.CreateDirectory(OutputPathSource);
             }
 
+            var types = new List<(string typeName, SyntaxTree tree)>();
+
             // Generate 32-bit fixed point types
-            var typeNames = new List<string>();
-            var syntaxTrees = new List<SyntaxTree>();
             for (int fractionalBits = 0; fractionalBits < 32; fractionalBits++) {
                 // Todo: instead of having typename separate, figure out how to
                 // extract it from the returned syntax tree
-                (string typeName, SyntaxTree tree) = FixedPointTypeGenerator.GenerateSigned32BitType(fractionalBits);
-                typeNames.Add(typeName);
-                syntaxTrees.Add(tree);
-            }
-
-            // Generate a few complex number types based on fixed point
-            // todo: move this elsewhere
-            for (int i = 0; i < 4; i++) {
-                (string typeName, SyntaxTree tree) = ComplexTypeGenerator.GenerateSigned32BitType(typeNames[16 + i * 4]);
-                typeNames.Add(typeName);
-                syntaxTrees.Add(tree);
+                types.Add(FixedPointTypeGenerator.GenerateSigned32BitType(fractionalBits));
             }
 
             // Compile types into library, including needed references
@@ -113,15 +110,48 @@ namespace CodeGeneration {
                 outputKind: OutputKind.DynamicallyLinkedLibrary,
                 optimizationLevel: OptimizationLevel.Debug,
                 allowUnsafe: true);
+
+            CompileLibrary(libName, compilationOptions, types.Select(tup => tup.tree), references);
+
+            return types;
+        }
+
+        private static List<(string typeName, SyntaxTree tree)> GenerateComplexTypes(string libName, List<(string typeName, SyntaxTree tree)> fpTypes) {
+            var types = new List<(string typeName, SyntaxTree tree)>();
+
+            for (int i = 0; i < 4; i++) {
+                types.Add(ComplexTypeGenerator.GenerateSigned32BitType(fpTypes[16 + i * 4].typeName));
+            }
+
+            // Compile types into library, including needed references
+            // Compile types into library, including needed references
+            var references = ReferenceLoader.Load();
+
+            var compilationOptions = new CSharpCompilationOptions(
+                outputKind: OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Debug,
+                allowUnsafe: true);
+
+            CompileLibrary(libName, compilationOptions, types.Select(tup=>tup.tree), references);
+
+            return types;
+        }
+
+        private static void CompileLibrary(
+            string libName,
+            CSharpCompilationOptions compilationOptions,
+            IEnumerable<SyntaxTree> types,
+            IEnumerable<PortableExecutableReference> references) {
+            
             var compilation = CSharpCompilation.Create(
-                "FixedPointTypesCompilation",
-                syntaxTrees,
+                $@"{libName}Compilation",
+                types,
                 references,
                 compilationOptions);
 
             // and output dll and pdb to disk
-            var dllName = LibraryName + ".dll";
-            var pdbName = LibraryName + ".pdb";
+            var dllName = libName + ".dll";
+            var pdbName = libName + ".pdb";
             var dllOutputPath = Path.Join(OutputPathLib, dllName);
             var pdbOutputPath = Path.Join(OutputPathLib, pdbName);
             var emitResult = compilation.Emit(
@@ -134,7 +164,7 @@ namespace CodeGeneration {
                 foreach (var diagnostic in emitResult.Diagnostics) {
                     Console.WriteLine(diagnostic.ToString());
                 }
-                return;
+
             }
 
             // Copy the resulting files to our Unity project
@@ -144,9 +174,10 @@ namespace CodeGeneration {
             // Optionally also write out each generated type as C# code text files
             // useful for debugging
             if (EmitSourceCode) {
-                for (int i = 0; i < syntaxTrees.Count; i++) {
-                    var code = syntaxTrees[i].GetCompilationUnitRoot().NormalizeWhitespace().ToFullString();
-                    var textWriter = File.CreateText(Path.Join(OutputPathSource, typeNames[i] + ".cs"));
+                foreach (var type in types) {
+                    var code = type.GetCompilationUnitRoot().NormalizeWhitespace().ToFullString();
+                    var typeName = type.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().First().Identifier;
+                    var textWriter = File.CreateText(Path.Join(OutputPathSource, typeName + ".cs"));
                     textWriter.Write(code);
                     textWriter.Close();
                 }
