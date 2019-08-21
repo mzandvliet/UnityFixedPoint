@@ -40,6 +40,22 @@
 
     Using CSharpSyntaxRewriter we can visit all GenericNameSyntax, which
     will include all uses of Scalar<qn_m> an assembly has.
+
+    --
+
+    Debugger Compatibility
+
+    Is it possible at all????
+
+    https://docs.microsoft.com/en-us/dotnet/framework/debug-trace-profile/enhancing-debugging-with-the-debugger-display-attributes
+    https://docs.unity3d.com/Manual/ScriptCompilationAssemblyDefinitionFiles.html
+    https://docs.unity3d.com/ScriptReference/Compilation.AssemblyBuilder.html
+    https://vscode.readthedocs.io/en/latest/editor/debugging/#launchjson-attributes
+
+    Options:
+    - Write game code external to Unity, preprocess it, then copy files
+    to Unity project folder after type replacement, and debugging from
+    there.
 */
 
 using Microsoft.CodeAnalysis;

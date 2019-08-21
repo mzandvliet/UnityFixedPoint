@@ -15,7 +15,8 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     - Optional overflow handling
     - Generate some other things:
         - Complex numbers
-        - Vectors
+        - Linear Algebra
+        - Geometric Algebra
         - Bezier curves
         - Burst jobs
         - Uh oh...
@@ -56,43 +57,35 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
  */
 
 namespace CodeGeneration {
-    class Program  {
-        private const string LibraryNameFixedPoint = "FixedPoint";
-        private const string LibraryNameComplex = "Complex";
-        private const string LibraryNameLinearAlgebra = "LinearAlgebra";
-        private const string OutputPathLib = "output/";
-        private const string OutputPathSource = "output/src/";
-        private const string OutputPathLibSecondary = "E:/code/unity/BurstDynamics/Assets/Plugins/RamjetMath";
-        private const bool EmitSourceCode = true;
+    public static class Config {
+        public const string LibraryNameFixedPoint = "FixedPoint";
+        public const string LibraryNameComplex = "Complex";
+        public const string LibraryNameLinearAlgebra = "LinearAlgebra";
+        public const string OutputPathLib = "output/";
+        public const string OutputPathSource = "output/src/";
+        public const string OutputPathLibSecondary = "E:/code/unity/BurstDynamics/Assets/Plugins/RamjetMath";
 
+        public const bool EmitSourceCode = true;
+        public const bool CopyToUnityProject = true;
+    }
+
+    class Program  {
         public static void Main(string[] args) {
             Console.WriteLine("Let's generate some code...");
             Console.WriteLine();
 
-            var fixedPointTypes = GenerateFixedPointTypes(LibraryNameFixedPoint);
-            var complexTypes = GenerateComplexTypes(LibraryNameComplex, fixedPointTypes);
+            var fixedPointTypes = GenerateFixedPointTypes(Config.LibraryNameFixedPoint);
+            var complexTypes = GenerateComplexTypes(Config.LibraryNameComplex, fixedPointTypes);
+            var linalgTypes = GenerateLinearAlgebraTypes(Config.LibraryNameLinearAlgebra, fixedPointTypes);
 
             // ProxyTypeTest.RewriteScalarTypeTest();
-
-            // Testing some linear algebra types, which need a lot of work
-            var vectorType = VectorTypeGenerator.GenerateSigned32BitType("q15_16", 3);
-            Console.WriteLine(vectorType.Item2.GetRoot().NormalizeWhitespace().ToFullString());
-
-            // var matrixType = MatrixTypeGenerator.GenerateSigned32BitType("q15_16", 4, 4);
-            // Console.WriteLine(matrixType.Item2.GetRoot().NormalizeWhitespace().ToFullString());
 
             Console.WriteLine();
             Console.WriteLine("All done!");
         }
 
         private static List<(string typeName, SyntaxTree tree)> GenerateFixedPointTypes(string libName) {
-            // Ensure directory structure
-            if (!Directory.Exists(OutputPathLib)) {
-                Directory.CreateDirectory(OutputPathLib);
-            }
-            if (!Directory.Exists(OutputPathSource)) {
-                Directory.CreateDirectory(OutputPathSource);
-            }
+            Console.WriteLine("Generating FixedPoint types...");
 
             var types = new List<(string typeName, SyntaxTree tree)>();
 
@@ -104,7 +97,7 @@ namespace CodeGeneration {
             }
 
             // Compile types into library, including needed references
-            var references = ReferenceLoader.Load();
+            var references = ReferenceLoader.LoadUnityReferences();
 
             var compilationOptions = new CSharpCompilationOptions(
                 outputKind: OutputKind.DynamicallyLinkedLibrary,
@@ -117,6 +110,8 @@ namespace CodeGeneration {
         }
 
         private static List<(string typeName, SyntaxTree tree)> GenerateComplexTypes(string libName, List<(string typeName, SyntaxTree tree)> fpTypes) {
+            Console.WriteLine("Generating Complex types...");
+
             var types = new List<(string typeName, SyntaxTree tree)>();
 
             for (int i = 0; i < 4; i++) {
@@ -124,8 +119,8 @@ namespace CodeGeneration {
             }
 
             // Compile types into library, including needed references
-            // Compile types into library, including needed references
-            var references = ReferenceLoader.Load();
+            var references = ReferenceLoader.LoadUnityReferences();
+            ReferenceLoader.AddGeneratedLibraryReference(references, Config.LibraryNameFixedPoint);
 
             var compilationOptions = new CSharpCompilationOptions(
                 outputKind: OutputKind.DynamicallyLinkedLibrary,
@@ -137,11 +132,52 @@ namespace CodeGeneration {
             return types;
         }
 
+        private static List<(string typeName, SyntaxTree tree)> GenerateLinearAlgebraTypes(string libName, List<(string typeName, SyntaxTree tree)> fpTypes) {
+            Console.WriteLine("Generating LinearAlgebra types...");
+
+            var types = new List<(string typeName, SyntaxTree tree)>();
+
+            var vectorType = VectorTypeGenerator.GenerateSigned32BitType(fpTypes[16].typeName, 3);
+            PrintSyntaxTreeWithLineNumbers(vectorType.Item2);
+            
+            types.Add(vectorType);
+            // for (int i = 0; i < fpTypes.Count; i++) {
+            //     types.Add(VectorTypeGenerator.GenerateSigned32BitType(fpTypes[i].typeName, 2));
+            // }
+
+            // for (int i = 0; i < fpTypes.Count; i++) {
+            //     types.Add(VectorTypeGenerator.GenerateSigned32BitType(fpTypes[i].typeName, 3));
+            // }
+
+            // Compile types into library, including needed references
+            var references = ReferenceLoader.LoadUnityReferences();
+            ReferenceLoader.AddGeneratedLibraryReference(references, Config.LibraryNameFixedPoint);
+
+            var compilationOptions = new CSharpCompilationOptions(
+                outputKind: OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Debug,
+                allowUnsafe: true);
+
+            CompileLibrary(libName, compilationOptions, types.Select(tup => tup.tree), references);
+
+            return types;
+        }
+
         private static void CompileLibrary(
             string libName,
             CSharpCompilationOptions compilationOptions,
             IEnumerable<SyntaxTree> types,
             IEnumerable<PortableExecutableReference> references) {
+
+            Console.WriteLine("Compiling library: " + libName + ".dll ...");
+
+            // Ensure directory structure
+            if (!Directory.Exists(Config.OutputPathLib)) {
+                Directory.CreateDirectory(Config.OutputPathLib);
+            }
+            if (!Directory.Exists(Config.OutputPathSource)) {
+                Directory.CreateDirectory(Config.OutputPathSource);
+            }
             
             var compilation = CSharpCompilation.Create(
                 $@"{libName}Compilation",
@@ -152,8 +188,8 @@ namespace CodeGeneration {
             // and output dll and pdb to disk
             var dllName = libName + ".dll";
             var pdbName = libName + ".pdb";
-            var dllOutputPath = Path.Join(OutputPathLib, dllName);
-            var pdbOutputPath = Path.Join(OutputPathLib, pdbName);
+            var dllOutputPath = Path.Join(Config.OutputPathLib, dllName);
+            var pdbOutputPath = Path.Join(Config.OutputPathLib, pdbName);
             var emitResult = compilation.Emit(
                 dllOutputPath,
                 pdbOutputPath);
@@ -168,20 +204,35 @@ namespace CodeGeneration {
             }
 
             // Copy the resulting files to our Unity project
-            File.Copy(dllOutputPath, Path.Join(OutputPathLibSecondary, dllName), true);
-            File.Copy(pdbOutputPath, Path.Join(OutputPathLibSecondary, pdbName), true);
+            if (Config.CopyToUnityProject) {
+                if (!Directory.Exists(Config.OutputPathLibSecondary)) {
+                    Directory.CreateDirectory(Config.OutputPathLibSecondary);
+                }
+                File.Copy(dllOutputPath, Path.Join(Config.OutputPathLibSecondary, dllName), true);
+                File.Copy(pdbOutputPath, Path.Join(Config.OutputPathLibSecondary, pdbName), true);
+            }
 
             // Optionally also write out each generated type as C# code text files
             // useful for debugging
-            if (EmitSourceCode) {
+            if (Config.EmitSourceCode) {
                 foreach (var type in types) {
                     var code = type.GetCompilationUnitRoot().NormalizeWhitespace().ToFullString();
                     var typeName = type.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().First().Identifier;
-                    var textWriter = File.CreateText(Path.Join(OutputPathSource, typeName + ".cs"));
+                    var textWriter = File.CreateText(Path.Join(Config.OutputPathSource, typeName + ".cs"));
                     textWriter.Write(code);
                     textWriter.Close();
                 }
             }
+        }
+
+        public static void PrintSyntaxTreeWithLineNumbers(SyntaxTree tree) {
+            string code = tree.GetRoot().NormalizeWhitespace().ToFullString();
+            var lines = code.Split('\n');
+            var codeBuilder = new StringBuilder();
+            for (int i = 0; i < lines.Length; i++) {
+                codeBuilder.AppendLine(string.Format("{0:0000}: {1}", i - 1, lines[i]));
+            }
+            Console.WriteLine(codeBuilder.ToString());
         }
     }
 
@@ -201,13 +252,18 @@ namespace CodeGeneration {
             "C:/Program Files/Unity/Hub/Editor/2019.2.0f1/Editor/Data/MonoBleedingEdge/lib/mono/4.7.1-api/System.dll",
         };
 
-        public static IList<PortableExecutableReference> Load() {
+        public static IList<PortableExecutableReference> LoadUnityReferences() {
             var libs = new List<PortableExecutableReference>();
             for (int i = 0; i < paths.Length; i++) {
                 var lib = MetadataReference.CreateFromFile(paths[i]);
                 libs.Add(lib);
             }
             return libs;
+        }
+
+        public static void AddGeneratedLibraryReference(IList<PortableExecutableReference> references, string libraryName) {
+            var libDllPath = Path.Join(Config.OutputPathLib, libraryName + ".dll");
+            references.Add(MetadataReference.CreateFromFile(libDllPath));
         }
     }
 }
