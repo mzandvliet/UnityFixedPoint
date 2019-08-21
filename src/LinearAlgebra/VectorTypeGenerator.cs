@@ -9,6 +9,12 @@ using System.Text;
 using SF = Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 using SK = Microsoft.CodeAnalysis.CSharp.SyntaxKind;
 
+/*
+    Todo:
+
+    - Also support float and double as scalar type
+ */
+
 namespace CodeGeneration {
     public static class VectorTypeGenerator {
         private static readonly string[] CoefficientNames = new string[] {
@@ -290,12 +296,14 @@ namespace CodeGeneration {
                     return {getHashCodeInstructions};
                 }}");
 
-            var toStringInstructions = coefficientFields.Select((coeff, index) => $@"{scalarTypeName}.ToFloat(this.{CoefficientNames[index]})")
+            var toStringReplaceList = coefficientFields.Select((coeff, index) => $@"{{{index}:0.000}}")
+               .Aggregate((a, b) => a + ", " + b);
+            var toStringCoeffs = coefficientFields.Select((coeff, index) => $@"{scalarTypeName}.ToFloat(this.{CoefficientNames[index]})")
                .Aggregate((a, b) => a + ", " + b);
             var toString = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public override string ToString() {{
-                    return ""{typeName}[{toStringInstructions}]"";
+                    return string.Format(""{typeName}({toStringReplaceList})"", {toStringCoeffs});
                 }}");
 
             var toStringFormat = SF.ParseMemberDeclaration($@"

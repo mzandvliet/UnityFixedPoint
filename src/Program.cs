@@ -114,8 +114,8 @@ namespace CodeGeneration {
 
             var types = new List<(string typeName, SyntaxTree tree)>();
 
-            for (int i = 0; i < 4; i++) {
-                types.Add(ComplexTypeGenerator.GenerateSigned32BitType(fpTypes[16 + i * 4].typeName));
+            for (int i = 0; i < fpTypes.Count; i++) {
+                types.Add(ComplexTypeGenerator.GenerateSigned32BitType(fpTypes[i].typeName));
             }
 
             // Compile types into library, including needed references
@@ -137,17 +137,15 @@ namespace CodeGeneration {
 
             var types = new List<(string typeName, SyntaxTree tree)>();
 
-            var vectorType = VectorTypeGenerator.GenerateSigned32BitType(fpTypes[16].typeName, 3);
-            PrintSyntaxTreeWithLineNumbers(vectorType.Item2);
-            
-            types.Add(vectorType);
-            // for (int i = 0; i < fpTypes.Count; i++) {
-            //     types.Add(VectorTypeGenerator.GenerateSigned32BitType(fpTypes[i].typeName, 2));
-            // }
+            // Vector_2d
+            for (int i = 0; i < fpTypes.Count; i++) {
+                types.Add(VectorTypeGenerator.GenerateSigned32BitType(fpTypes[i].typeName, 2));
+            }
 
-            // for (int i = 0; i < fpTypes.Count; i++) {
-            //     types.Add(VectorTypeGenerator.GenerateSigned32BitType(fpTypes[i].typeName, 3));
-            // }
+            // Vector_3d
+            for (int i = 0; i < fpTypes.Count; i++) {
+                types.Add(VectorTypeGenerator.GenerateSigned32BitType(fpTypes[i].typeName, 3));
+            }
 
             // Compile types into library, including needed references
             var references = ReferenceLoader.LoadUnityReferences();
@@ -200,7 +198,6 @@ namespace CodeGeneration {
                 foreach (var diagnostic in emitResult.Diagnostics) {
                     Console.WriteLine(diagnostic.ToString());
                 }
-
             }
 
             // Copy the resulting files to our Unity project
