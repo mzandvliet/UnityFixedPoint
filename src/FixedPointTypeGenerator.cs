@@ -9,6 +9,15 @@ using System.Text;
 using SF = Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 using SK = Microsoft.CodeAnalysis.CSharp.SyntaxKind;
 
+/*
+    Bug: multiplication of negative * positive is borked?
+
+    Todo:
+    - Add intialization by raw int value
+    - support mixed arithmetic with raw int types
+        - var num = q24_7.one / 4;
+ */
+
 namespace CodeGeneration {
     public static class FixedPointTypeGenerator {
         private static string GenerateSignBitMaskLiteral(int wordLength) {
@@ -273,7 +282,10 @@ namespace CodeGeneration {
             var opMul = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} operator *({typeName} lhs, {typeName} rhs) {{
-                    return new {typeName}((int)(((long)lhs.v * (long)rhs.v) >> Scale));
+                    long lhsLong = lhs.v;
+                    long rhsLong = rhs.v;
+                    return new {typeName}((int)((lhsLong * rhsLong) >> Scale));
+                    // + (1 << HalfScale)
                 }}");
 
             /*

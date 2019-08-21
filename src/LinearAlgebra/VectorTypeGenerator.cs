@@ -11,8 +11,25 @@ using SK = Microsoft.CodeAnalysis.CSharp.SyntaxKind;
 
 /*
     Todo:
+ 
+    - Add intialization by raw int value
 
-    - Also support float and double as scalar type
+    - Add additional backing types:
+        - unsigned
+        - byte
+        - short
+        - long
+        - longlong
+        - freakier multi-word and union types
+
+    - mixed precision arithmetic
+
+    e.g. you can freely add the following to a vec2_q24_7:
+        - vec2_q0_7
+        - vec2_q8_7
+        - vec2_q24_7
+
+    - Support float and double as scalar type
  */
 
 namespace CodeGeneration {

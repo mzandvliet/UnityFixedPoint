@@ -13,6 +13,9 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     - When creating new FixedPoint, check whether given value lies within representable
     range.
     - Optional overflow handling
+    - Rounding / Jittering
+        - This does not trivially extend to higher linear algebra types
+
     - Generate some other things:
         - Complex numbers
         - Linear Algebra
@@ -40,6 +43,8 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     I wonder how big the library becomes, how much it'll slow things down, and just
     how polluted Intellisense will end up...
     
+    === Proxy Types ===
+
     Idea: Generate generic proxy types! Some valid C#, such that it compiles, and we
     get nice intellisense, and we're not flooded with types. Then, we take that
     code, run it through Roslyn code rewriter that replaces the proxies with
@@ -49,6 +54,19 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     for any specific field. A lot like how Rust has TypeClasses.
 
     Trying this in ProxyTypeTest.cs. Could work, but has some serious downsides.
+
+    === Literals ===
+
+    If we're going with edgy, juicy manipulations that border on altering the
+    C# language anyway, I nominate we do something for easier declarations
+    of literal values.
+
+    === Const Declarations ===
+
+    Not supported by C#. Minor issue though, right?
+
+    sizeof(q24_7) // This doesn't compile without unsafe. Compiler cannot infer
+    const size from members...
 
     ------
 
@@ -194,10 +212,17 @@ namespace CodeGeneration {
 
             // If our compilation failed, we can discover exactly why.
             if (!emitResult.Success) {
-                Console.WriteLine("Code generation failed! Errors:");
+                Console.WriteLine(string.Format("Code generation for failed! Errors:"));
                 foreach (var diagnostic in emitResult.Diagnostics) {
+                    var brokenType = diagnostic.Location.SourceTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().First().Identifier;
+                    Console.WriteLine($"In type {brokenType}");
                     Console.WriteLine(diagnostic.ToString());
+                    var span = diagnostic.Location.SourceTree.GetLineSpan(diagnostic.Location.SourceSpan);
+                    PrintSyntaxTreeWithLineNumbers(types.ToList()[0], span.StartLinePosition.Line, span.EndLinePosition.Line);
                 }
+                
+                Console.WriteLine("Aborting...");
+                return;
             }
 
             // Copy the resulting files to our Unity project
@@ -222,12 +247,12 @@ namespace CodeGeneration {
             }
         }
 
-        public static void PrintSyntaxTreeWithLineNumbers(SyntaxTree tree) {
+        public static void PrintSyntaxTreeWithLineNumbers(SyntaxTree tree, int lineStart, int lineEnd) {
             string code = tree.GetRoot().NormalizeWhitespace().ToFullString();
             var lines = code.Split('\n');
             var codeBuilder = new StringBuilder();
-            for (int i = 0; i < lines.Length; i++) {
-                codeBuilder.AppendLine(string.Format("{0:0000}: {1}", i - 1, lines[i]));
+            for (int i = lineStart; i <= lineEnd; i++) {
+                codeBuilder.AppendLine(string.Format("{0:0000}: {1}", i + 1, lines[i-1]));
             }
             Console.WriteLine(codeBuilder.ToString());
         }
