@@ -60,6 +60,56 @@ namespace CodeGeneration {
             return maskBuilder.ToString();
         }
 
+        public enum WordSize {
+            B8,
+            B16,
+            B32,
+            B64,
+        }
+
+        public enum WordSign {
+            Unsigned,
+            Signed
+        }
+
+        public struct WordType {
+            WordSize Size;
+            WordSign Sign;
+
+            public WordType(WordSize size, WordSign sign) {
+                Size = size;
+                Sign = sign;
+            }
+
+            public bool Equals(WordType rhs) {
+                return Size == rhs.Size && Sign == rhs.Sign;
+            }
+
+            public override bool Equals(object o) {
+                return Equals((WordType)o);
+            }
+
+            public static bool operator ==(WordType lhs, WordType rhs) {
+                return lhs.Equals(rhs);
+            }
+
+            public static bool operator !=(WordType lhs, WordType rhs) {
+                return !lhs.Equals(rhs);
+            }
+        }
+
+        public static readonly Dictionary<WordType, string> DotNetWordTypes = new Dictionary<WordType, string> {
+            { new WordType(WordSize.B8 , WordSign.Unsigned),    "byte" },
+            { new WordType(WordSize.B16, WordSign.Unsigned),    "ushort" },
+            { new WordType(WordSize.B32, WordSign.Unsigned),    "uint" },
+            { new WordType(WordSize.B64, WordSign.Unsigned),    "ulong" },
+            { new WordType(WordSize.B8 , WordSign.Signed),      "sbyte" },
+            { new WordType(WordSize.B16, WordSign.Signed),      "short" },
+            { new WordType(WordSize.B32, WordSign.Signed),      "int" },
+            { new WordType(WordSize.B64, WordSign.Signed),      "long" },
+        };
+
+
         /*
             Todo:
             - Find out the difference between .WithX and .AddX
