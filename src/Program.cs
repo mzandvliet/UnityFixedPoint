@@ -129,14 +129,20 @@ namespace CodeGeneration {
             // Generate 32-bit fixed point types
             // var word = new WordType(WordSize.B32, WordSign.Signed);
             // for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
-            //     types.Add(FixedPointTypeGenerator.GenerateSignedBitType(word, fractionalBits));
+            //     types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
             // }
             // word = new WordType(WordSize.B16, WordSign.Signed);
             // for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
-            //     types.Add(FixedPointTypeGenerator.GenerateSignedBitType(word, fractionalBits));
+            //     types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
             // }
 
-            var shortType = FixedPointTypeGenerator.GenerateSignedBitType(new WordType(WordSize.B16, WordSign.Signed), 0);
+            // Todo: q0_WordSize
+            // var word = new WordType(WordSize.B16, WordSign.Unsigned);
+            // for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
+            //     types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
+            // }
+
+            var shortType = FixedPointTypeGenerator.GenerateType(new WordType(WordSize.B16, WordSign.Unsigned), 12);
             types.Add(shortType);
             Console.WriteLine(shortType.Item2.GetRoot().NormalizeWhitespace().ToFullString());
 
@@ -295,7 +301,9 @@ namespace CodeGeneration {
 
             var span = diagnostic.Location.GetLineSpan();
 
-            Console.WriteLine(lines[span.StartLinePosition.Line-1]);
+            if (span.StartLinePosition.Line - 1 >= 0) {
+                Console.WriteLine(lines[span.StartLinePosition.Line - 1]);
+            }
 
             var line = lines[span.StartLinePosition.Line];
             var lineStart = line.Substring(0, span.StartLinePosition.Character);
@@ -310,7 +318,9 @@ namespace CodeGeneration {
             Console.Write("[<!!!ERROR!!!>]");
             Console.Write(errorStart + "\n");
 
-            Console.WriteLine(lines[span.StartLinePosition.Line + 1]);
+            if (span.StartLinePosition.Line + 1 < span.EndLinePosition.Line) {
+                Console.WriteLine(lines[span.StartLinePosition.Line + 1]);
+            }
         }
 
         private static int FindNewline(string text, int startIndex) {

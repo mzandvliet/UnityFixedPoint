@@ -130,7 +130,7 @@ namespace CodeGeneration {
             - Question whether we need this extreme verbosity
             - Make cast-to-word-type optional. ({wordType})
          */
-        public static (string, SyntaxTree) GenerateSignedBitType(in WordType wordDef, in int fractionalBits) {
+        public static (string, SyntaxTree) GenerateType(in WordType wordDef, in int fractionalBits) {
             string wordType = DotNetWordTypes[wordDef];
             int wordLength = (int)wordDef.Size;
             int signBit = (wordDef.Sign == WordSign.Signed ? 1 : 0);
