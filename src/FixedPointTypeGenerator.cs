@@ -164,7 +164,7 @@ namespace CodeGeneration {
                 throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - signBit));
             }
 
-            string typeName = string.Format("q{0}_{1}", integerBits, fractionalBits);
+            string typeName = string.Format("q{0}{1}_{2}", signBit == 1 ? "s" : "u", integerBits, fractionalBits);
 
             string fractionalBitMask =  GenerateFractionalMaskLiteral(wordDef, fractionalBits);
             string integerBitMask =     GenerateFractionalMaskLiteral(wordDef, fractionalBits, "1", "0");
