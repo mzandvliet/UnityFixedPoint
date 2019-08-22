@@ -102,7 +102,7 @@ namespace CodeGeneration {
 
             var fixedPointTypes = GenerateFixedPointTypes(Config.LibraryNameFixedPoint);
             // var complexTypes = GenerateComplexTypes(Config.LibraryNameComplex, fixedPointTypes);
-            // var linalgTypes = GenerateLinearAlgebraTypes(Config.LibraryNameLinearAlgebra, fixedPointTypes);
+            var linalgTypes = GenerateLinearAlgebraTypes(Config.LibraryNameLinearAlgebra, fixedPointTypes);
 
             // ProxyTypeTest.RewriteScalarTypeTest();
 
@@ -130,10 +130,10 @@ namespace CodeGeneration {
             Console.WriteLine(Utils.ToBitString(IntegerMask));
         }
 
-        private static List<(string typeName, SyntaxTree tree)> GenerateFixedPointTypes(string libName) {
+        private static List<(FixedPointType type, SyntaxTree tree)> GenerateFixedPointTypes(string libName) {
             Console.WriteLine("Generating FixedPoint types...");
 
-            var types = new List<(string typeName, SyntaxTree tree)>();
+            var types = new List<(FixedPointType type, SyntaxTree tree)>();
 
             // Generate signed 32-bit fixed point types
             var word = new WordType(WordSize.B32, WordSign.Signed);
@@ -200,19 +200,19 @@ namespace CodeGeneration {
             return types;
         }
 
-        private static List<(string typeName, SyntaxTree tree)> GenerateLinearAlgebraTypes(string libName, List<(string typeName, SyntaxTree tree)> fpTypes) {
+        private static List<(FixedPointType type, SyntaxTree tree)> GenerateLinearAlgebraTypes(string libName, List<(FixedPointType type, SyntaxTree tree)> fpTypes) {
             Console.WriteLine("Generating LinearAlgebra types...");
 
-            var types = new List<(string typeName, SyntaxTree tree)>();
+            var types = new List<(FixedPointType type, SyntaxTree tree)>();
 
             // Vector_2d
             for (int i = 0; i < fpTypes.Count; i++) {
-                types.Add(VectorTypeGenerator.GenerateSigned32BitType(fpTypes[i].typeName, 2));
+                types.Add(VectorTypeGenerator.GenerateType(fpTypes[i].type, 2));
             }
 
             // Vector_3d
             for (int i = 0; i < fpTypes.Count; i++) {
-                types.Add(VectorTypeGenerator.GenerateSigned32BitType(fpTypes[i].typeName, 3));
+                types.Add(VectorTypeGenerator.GenerateType(fpTypes[i].type, 3));
             }
 
             // Compile types into library, including needed references

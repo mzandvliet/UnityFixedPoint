@@ -41,11 +41,12 @@ namespace CodeGeneration {
             "w"
         };
 
-        public static (string, SyntaxTree) GenerateSigned32BitType(string scalarTypeName, in int numDimensions) {
+        public static (FixedPointType, SyntaxTree) GenerateType(in FixedPointType scalarType, in int numDimensions) {
             if (numDimensions <= 0 || numDimensions > 4) {
                 throw new ArgumentException("Vector types currently only support 1-4 dimensions");
             }
 
+            string scalarTypeName = scalarType.name;
             string typeName = string.Format("vec{0}_{1}", numDimensions, scalarTypeName);
 
             var usingStrings = new List<string> {
@@ -303,14 +304,19 @@ namespace CodeGeneration {
                 opEq,
                 opNEq);
 
-            // // Other
+            // Other
 
+            /*
+            GetHashCode
+
+            Todo: None of these make particular sense for each type yet...
+            */
             var getHashCodeInstructions = coefficientFields.Select((coeff, index) => $@"this.{CoefficientNames[index]}.v")
                .Aggregate((a, b) => a + " ^\n" + b);
             var getHashCode = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public override int GetHashCode() {{
-                    return {getHashCodeInstructions};
+                    return (int)({getHashCodeInstructions});
                 }}");
 
             var toStringReplaceList = coefficientFields.Select((coeff, index) => $@"{{{index}:0.000}}")
@@ -337,7 +343,7 @@ namespace CodeGeneration {
             nameSpace = nameSpace.AddMembers(type);
             unit = unit.AddMembers(nameSpace);
 
-            return (typeName, CSharpSyntaxTree.Create(unit));
+            return (new FixedPointType(typeName, scalarType.word), CSharpSyntaxTree.Create(unit));
         }
     }
 }

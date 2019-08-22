@@ -76,6 +76,16 @@ namespace CodeGeneration {
         }
     }
 
+    public class FixedPointType {
+        public string name;
+        public WordType word;
+
+        public FixedPointType(string name, WordType word) {
+            this.name = name;
+            this.word = word;
+        }
+    }
+
     public static class FixedPointTypeGenerator {
         private static string GenerateSignBitMaskLiteral(in WordType wordDef) {
             var maskBuilder = new StringBuilder();
@@ -139,7 +149,7 @@ namespace CodeGeneration {
             - Question whether we need this extreme verbosity
             - Make cast-to-word-type optional. ({wordType})
          */
-        public static (string, SyntaxTree) GenerateType(in WordType wordDef, in int fractionalBits) {
+        public static (FixedPointType, SyntaxTree) GenerateType(in WordType wordDef, in int fractionalBits) {
             string wordType = DotNetWordTypes[wordDef];
             int wordLength = (int)wordDef.Size;
             int signBit = (wordDef.Sign == WordSign.Signed ? 1 : 0);
@@ -485,7 +495,7 @@ namespace CodeGeneration {
             nameSpace = nameSpace.AddMembers(type);
             unit = unit.AddMembers(nameSpace);
 
-            return (typeName, CSharpSyntaxTree.Create(unit));
+            return (new FixedPointType(typeName, wordDef), CSharpSyntaxTree.Create(unit));
         }
     }
 }
