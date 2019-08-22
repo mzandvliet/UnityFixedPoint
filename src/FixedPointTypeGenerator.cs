@@ -31,6 +31,10 @@ using SK = Microsoft.CodeAnalysis.CSharp.SyntaxKind;
 
     I can't say I'm entirely on board with the chosen direction, but... now
     we know.
+
+    But wait, there's more restrictions on shifting:
+
+    https://social.msdn.microsoft.com/Forums/vstudio/en-US/1e9d6e3b-bbad-45df-9391-7403becd9641/shift-ltlt-operator-cannot-be-applied-to-uint
  */
 
 namespace CodeGeneration {
@@ -143,6 +147,8 @@ namespace CodeGeneration {
 
             var doubleWordDef = new WordType((WordSize)(wordLength * 2), wordDef.Sign);
             string doubleWordType = DotNetWordTypes[doubleWordDef];
+            var signedWordDef = new WordType(wordDef.Size, WordSign.Signed);
+            string signedWordType = DotNetWordTypes[signedWordDef];
 
             if (integerBits + fractionalBits != wordLength - signBit) {
                 throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - signBit));
@@ -175,9 +181,9 @@ namespace CodeGeneration {
             // Constants
 
             var scale = SF.ParseMemberDeclaration(
-                $@"public const {wordType} Scale = {fractionalBits};");
+                $@"public const {signedWordType} Scale = {fractionalBits};");
             var halfScale = SF.ParseMemberDeclaration(
-                $@"private const {wordType} HalfScale = Scale >> 1;");
+                $@"private const {signedWordType} HalfScale = Scale >> 1;");
             
             var fractionMask = SF.ParseMemberDeclaration(
                 $@"private const {wordType} FractionMask = unchecked(({wordType}){fractionalBitMask});");
@@ -193,7 +199,7 @@ namespace CodeGeneration {
             var epsilon = SF.ParseMemberDeclaration(
                 $@"public static readonly {typeName} Epsilon = new {typeName}(1);");
             var halfEpsilon = SF.ParseMemberDeclaration(
-                $@"private const {doubleWordType} HalfEpsilon = Scale > 0 ? (1 << (Scale-1)) : (0);");
+                $@"private const {doubleWordType} HalfEpsilon = ({doubleWordType})(Scale > 0 ? (({wordType})1 << (Scale-1)) : (0));");
 
             type = type.AddMembers(
                 scale,
@@ -234,7 +240,17 @@ namespace CodeGeneration {
 
             // === Methods ===
 
-            // Type conversions
+            /* Optional cast-to-int instruction needed for methods on
+            unsigned types that return them as signed. */
+            string intCast = signBit == 0 ? "(int)" : "";
+
+            /*
+            Type conversions
+
+            Todo:
+                - uint
+                - explicit casting
+            */
 
             var fromInt = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -245,7 +261,7 @@ namespace CodeGeneration {
             var toInt = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static int ToInt({typeName} f) {{
-                    return f.v >> Scale;
+                    return {intCast}(f.v >> Scale);
                 }}");
 
             var fromFloat = SF.ParseMemberDeclaration($@"
@@ -439,7 +455,7 @@ namespace CodeGeneration {
 
             var getHashCode = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public override int GetHashCode() {{ return v; }}");
+                public override int GetHashCode() {{ return {intCast}v; }}");
 
             var toString = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]

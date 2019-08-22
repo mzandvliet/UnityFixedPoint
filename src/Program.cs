@@ -95,7 +95,7 @@ namespace CodeGeneration {
 
     class Program  {
         public static void Main(string[] args) {
-            TestStuff();
+            // TestStuff();
 
             Console.WriteLine("Let's generate some code...");
             Console.WriteLine();
@@ -142,10 +142,10 @@ namespace CodeGeneration {
             }
 
             // Generate unsigned 32-bit fixed point types
-            // word = new WordType(WordSize.B32, WordSign.Unsigned);
-            // for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
-            //     types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
-            // }
+            word = new WordType(WordSize.B32, WordSign.Unsigned);
+            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
+                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
+            }
 
             // Generate signed 16-bit fixed point types
             word = new WordType(WordSize.B16, WordSign.Signed);
