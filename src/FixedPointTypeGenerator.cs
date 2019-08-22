@@ -119,6 +119,8 @@ namespace CodeGeneration {
 
             var epsilon = SF.ParseMemberDeclaration(
                 $@"public static readonly {typeName} Epsilon = new {typeName}(1);");
+            var halfEpsilon = SF.ParseMemberDeclaration(
+                $@"private const {wordType} HalfEpsilon = 1 << (Scale-1);");
 
             // Value field
 
@@ -135,6 +137,7 @@ namespace CodeGeneration {
                 zero,
                 one,
                 epsilon,
+                halfEpsilon,
                 intValue);
 
             // Constructors
@@ -284,8 +287,8 @@ namespace CodeGeneration {
                 public static {typeName} operator *({typeName} lhs, {typeName} rhs) {{
                     long lhsLong = lhs.v;
                     long rhsLong = rhs.v;
-                    return new {typeName}((int)((lhsLong * rhsLong) >> Scale));
-                    // + (1 << HalfScale)
+                    long result = (lhsLong * rhsLong) + HalfEpsilon;
+                    return new {typeName}((int)(result >> Scale));
                 }}");
 
             /*

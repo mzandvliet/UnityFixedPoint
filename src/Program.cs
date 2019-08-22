@@ -61,6 +61,12 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     C# language anyway, I nominate we do something for easier declarations
     of literal values.
 
+    Instead of altering the language, why not extend your keyboard shortcuts
+    and IDE with macros?
+
+    Have a dedicated function modifier key, then press another key to choose
+    type. That command tells the IDE to generate new vec3_27_4(*cursor*).
+
     === Const Declarations ===
 
     Not supported by C#. Minor issue though, right?
@@ -214,11 +220,7 @@ namespace CodeGeneration {
             if (!emitResult.Success) {
                 Console.WriteLine(string.Format("Code generation for failed! Errors:"));
                 foreach (var diagnostic in emitResult.Diagnostics) {
-                    var brokenType = diagnostic.Location.SourceTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().First().Identifier;
-                    Console.WriteLine($"In type {brokenType}");
-                    Console.WriteLine(diagnostic.ToString());
-                    var span = diagnostic.Location.SourceTree.GetLineSpan(diagnostic.Location.SourceSpan);
-                    PrintSyntaxTreeWithLineNumbers(types.ToList()[0], span.StartLinePosition.Line, span.EndLinePosition.Line);
+                    PrintDiagnostic(diagnostic);
                 }
                 
                 Console.WriteLine("Aborting...");
@@ -247,14 +249,55 @@ namespace CodeGeneration {
             }
         }
 
-        public static void PrintSyntaxTreeWithLineNumbers(SyntaxTree tree, int lineStart, int lineEnd) {
+        public static void PrintSyntaxTreeWithLineNumbers(SyntaxTree tree) {
             string code = tree.GetRoot().NormalizeWhitespace().ToFullString();
             var lines = code.Split('\n');
             var codeBuilder = new StringBuilder();
-            for (int i = lineStart; i <= lineEnd; i++) {
+            for (int i = 0; i <= lines.Length; i++) {
                 codeBuilder.AppendLine(string.Format("{0:0000}: {1}", i + 1, lines[i-1]));
             }
             Console.WriteLine(codeBuilder.ToString());
+        }
+
+        public static void PrintDiagnostic(Diagnostic diagnostic) {
+            /*
+                Todo:
+                less clutter
+                color coding (get it to work in VSCODE)
+             */
+            var brokenType = diagnostic.Location.SourceTree.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().First().Identifier;
+            Console.WriteLine($"In type {brokenType}:");
+            Console.WriteLine(diagnostic.ToString());
+
+            var code = diagnostic.Location.SourceTree.GetText();
+            var codeString = code.ToString();
+            var lines = codeString.Split('\n');
+
+            var span = diagnostic.Location.GetLineSpan();
+
+            var line = lines[span.StartLinePosition.Line];
+            var lineStart = line.Substring(0, span.StartLinePosition.Character);
+            var errorStart = line.Substring(span.StartLinePosition.Character);
+            // Console.ForegroundColor = ConsoleColor.White;
+            // Console.Write(lineStart);
+            // Console.BackgroundColor = ConsoleColor.Red;
+            // Console.Write(errorStart + "\n");
+            // Console.ResetColor();
+
+            Console.Write(lineStart);
+            Console.Write("[<!!!ERROR!!!>]");
+            Console.Write(errorStart + "\n");
+        }
+
+        private static int FindNewline(string text, int startIndex) {
+            int index = startIndex;
+            while (index < text.Length) {
+                if (text[index] == '\n') {
+                    return index;
+                }
+                index++;
+            }
+            return startIndex;
         }
     }
 
