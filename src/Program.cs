@@ -115,10 +115,19 @@ namespace CodeGeneration {
                 Turns out non-32-bit word integer operators return int
                 Look, this won't compile without casting the result to int:
              */
-            const short FractionMask = unchecked((short)0b0000_0000_0000_0000);
-            const short IntegerMask = ~FractionMask;
-            short v = 10;
-            short result = (short)((v & FractionMask) | IntegerMask);
+            // const short FractionMask = unchecked((short)0b0000_0000_0000_0000);
+            // const short IntegerMask = ~FractionMask;
+            // short v = 10;
+            // short result = (short)((v & FractionMask) | IntegerMask);
+
+            const int FractionMask = unchecked((ushort)0b0000_1111_1111_1111);
+            // const ushort IntegerMask = unchecked(~FractionMask); // Doesn't work, yields -2048
+            // const ushort IntegerMask = unchecked((ushort)0b1111_0000_0000_0000);
+            const int IntegerMask = unchecked(~(ushort)0b0000_1111_1111_1111);
+            Console.WriteLine(FractionMask);
+            Console.WriteLine(Utils.ToBitString(FractionMask));
+            Console.WriteLine(IntegerMask);
+            Console.WriteLine(Utils.ToBitString(IntegerMask));
         }
 
         private static List<(string typeName, SyntaxTree tree)> GenerateFixedPointTypes(string libName) {
@@ -126,25 +135,34 @@ namespace CodeGeneration {
 
             var types = new List<(string typeName, SyntaxTree tree)>();
 
-            // Generate 32-bit fixed point types
-            // var word = new WordType(WordSize.B32, WordSign.Signed);
-            // for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
-            //     types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
-            // }
-            // word = new WordType(WordSize.B16, WordSign.Signed);
+            // Generate signed 32-bit fixed point types
+            var word = new WordType(WordSize.B32, WordSign.Signed);
+            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
+                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
+            }
+
+            // Generate unsigned 32-bit fixed point types
+            // word = new WordType(WordSize.B32, WordSign.Unsigned);
             // for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
             //     types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
             // }
 
-            // Todo: q0_WordSize
-            // var word = new WordType(WordSize.B16, WordSign.Unsigned);
-            // for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
-            //     types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
-            // }
+            // Generate signed 16-bit fixed point types
+            word = new WordType(WordSize.B16, WordSign.Signed);
+            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
+                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
+            }
 
-            var shortType = FixedPointTypeGenerator.GenerateType(new WordType(WordSize.B16, WordSign.Unsigned), 12);
-            types.Add(shortType);
-            Console.WriteLine(shortType.Item2.GetRoot().NormalizeWhitespace().ToFullString());
+            // Generate unsigned 16-bit fixed point types
+            // Todo: q0_WordSize, is it included?
+            word = new WordType(WordSize.B16, WordSign.Unsigned);
+            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
+                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
+            }
+
+            // var shortType = FixedPointTypeGenerator.GenerateType(new WordType(WordSize.B16, WordSign.Unsigned), 12);
+            // types.Add(shortType);
+            // Console.WriteLine(shortType.Item2.GetRoot().NormalizeWhitespace().ToFullString());
 
             // Compile types into library, including needed references
             var references = ReferenceLoader.LoadUnityReferences();

@@ -10,9 +10,9 @@ using SF = Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 using SK = Microsoft.CodeAnalysis.CSharp.SyntaxKind;
 
 /*
-    Bug: multiplication of negative * positive is borked?
-
     Todo:
+    - unsigned type arithmetic (no need for tricks with sign mask)
+
     - Add intialization by raw int value
     - support mixed arithmetic with raw int types
         - var num = q24_7.one / 4;
@@ -73,8 +73,10 @@ namespace CodeGeneration {
     }
 
     public static class FixedPointTypeGenerator {
-        private static string GenerateSignBitMaskLiteral(int wordLength) {
+        private static string GenerateSignBitMaskLiteral(in WordType wordDef) {
             var maskBuilder = new StringBuilder();
+
+            int wordLength = (int)wordDef.Size;
 
             maskBuilder.Append("0b");
             maskBuilder.Append("1");
@@ -88,26 +90,29 @@ namespace CodeGeneration {
             return maskBuilder.ToString();
         }
 
-        private static string GenerateFractionalMaskLiteral(int wordLength, int fractionalBits) {
+        private static string GenerateFractionalMaskLiteral(in WordType wordDef, in int fractionalBits, string intBitChar = "0", string fracBitChar = "1") {
             var maskBuilder = new StringBuilder();
 
-            int integerBits = wordLength - 1 - fractionalBits;
-            if (integerBits + fractionalBits != wordLength - 1) {
-                throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - 1));
+            int wordLength = (int)wordDef.Size;
+            int signBit = (wordDef.Sign == WordSign.Signed ? 1 : 0);
+            int integerBits = wordLength - signBit - fractionalBits;
+
+            if (integerBits + fractionalBits != wordLength - signBit) {
+                throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - signBit));
             }
 
             maskBuilder.Append("0b");
-            for (int i = 0; i < integerBits + 1; i++) {
+            for (int i = 0; i < integerBits; i++) {
                 if (i > 0 && i % 4 == 0) {
                     maskBuilder.Append("_");
                 }
-                maskBuilder.Append("0");
+                maskBuilder.Append(intBitChar);
             }
-            for (int i = integerBits + 1; i < wordLength; i++) {
+            for (int i = integerBits; i < wordLength; i++) {
                 if (i > 0 && i % 4 == 0) {
                     maskBuilder.Append("_");
                 }
-                maskBuilder.Append("1");
+                maskBuilder.Append(fracBitChar);
             }
 
             return maskBuilder.ToString();
@@ -145,8 +150,8 @@ namespace CodeGeneration {
 
             string typeName = string.Format("q{0}_{1}", integerBits, fractionalBits);
 
-            string signBitMask = GenerateSignBitMaskLiteral(wordLength);
-            string fractionalBitMask = GenerateFractionalMaskLiteral(wordLength, fractionalBits);
+            string fractionalBitMask =  GenerateFractionalMaskLiteral(wordDef, fractionalBits);
+            string integerBitMask =     GenerateFractionalMaskLiteral(wordDef, fractionalBits, "1", "0");
 
             var usingStrings = new List<string> {
                 "System", 
@@ -173,12 +178,11 @@ namespace CodeGeneration {
                 $@"public const {wordType} Scale = {fractionalBits};");
             var halfScale = SF.ParseMemberDeclaration(
                 $@"private const {wordType} HalfScale = Scale >> 1;");
-            var signMask = SF.ParseMemberDeclaration(
-                $@"private const {wordType} SignMask = unchecked(({wordType}){signBitMask});");
+            
             var fractionMask = SF.ParseMemberDeclaration(
                 $@"private const {wordType} FractionMask = unchecked(({wordType}){fractionalBitMask});");
             var integerMask = SF.ParseMemberDeclaration(
-                $@"private const {wordType} IntegerMask = ~FractionMask;");
+                $@"private const {wordType} IntegerMask = unchecked(({wordType}){integerBitMask});");
 
             var zero = SF.ParseMemberDeclaration(
                 $@"public static readonly {typeName} Zero = new {typeName}(0);");
@@ -191,23 +195,31 @@ namespace CodeGeneration {
             var halfEpsilon = SF.ParseMemberDeclaration(
                 $@"private const {doubleWordType} HalfEpsilon = Scale > 0 ? (1 << (Scale-1)) : (0);");
 
-            // Value field
-
-            var rawValue = SF.ParseMemberDeclaration(
-                $@"[FieldOffset(0)] public {wordType} v;");
-
-            
-            type =  type.AddMembers(
+            type = type.AddMembers(
                 scale,
                 halfScale,
-                signMask,
                 fractionMask,
                 integerMask,
                 zero,
                 one,
                 epsilon,
-                halfEpsilon,
-                rawValue);
+                halfEpsilon);
+
+            // Optional sign mask constant for signed types
+            if (signBit == 1) {
+                string signBitMask = GenerateSignBitMaskLiteral(wordDef);
+
+                var signMask = SF.ParseMemberDeclaration(
+                    $@"private const {wordType} SignMask = unchecked(({wordType}){signBitMask});");
+                type = type.AddMembers(signMask);
+            }
+
+            // Value field, in which number is stored
+
+            var rawValue = SF.ParseMemberDeclaration(
+                $@"[FieldOffset(0)] public {wordType} v;");
+            
+            type = type.AddMembers(rawValue);
 
             // Constructors
 
@@ -220,10 +232,9 @@ namespace CodeGeneration {
             type = type.AddMembers(
                 constructor);
 
-
             // === Methods ===
 
-            // Type conversion
+            // Type conversions
 
             var fromInt = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -274,6 +285,8 @@ namespace CodeGeneration {
                 toDouble);
 
             /*
+            Frac
+
             There's multiple ways to implement Frac.
 
             Here we use a masking strategy, taking
@@ -282,23 +295,30 @@ namespace CodeGeneration {
             Could also use double bit shifting like so:
             return new {typeName}((f.v << (Scale-1)) >> (Scale-1));
             */
+            var fractNegativePath = "";
+            if (signBit == 1) {
+                // Code path for signed types, in case sign bit is set
+                fractNegativePath = $@"
+                if ((f.v & SignMask) != ({wordType})0) {{
+                    return new {typeName}(({wordType})((f.v & FractionMask) | IntegerMask));
+                }}";
+            }
             var frac = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} Frac({typeName} f) {{
-                    if ((f.v & SignMask) != ({wordType})0) {{
-                        return new {typeName}(({wordType})((f.v & FractionMask) | IntegerMask));
-                    }}
+                    {fractNegativePath}
                     return new {typeName}(({wordType})(f.v & FractionMask));
                 }}");
 
             /*
+            Whole
+
             Two's complement automatically handled properly
-            here, because MSBits are preserved.
+            here, because most significant bits are preserved.
             */
             var whole = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} Whole({typeName} f) {{
-                   
                     return new {typeName}(({wordType})(f.v & IntegerMask));
                 }}");
 
@@ -310,7 +330,9 @@ namespace CodeGeneration {
             /*
             === Operator overloading ===
             
-            Here we construct the result by new struct(), it is quite slow.
+            Note: we construct the result by new struct(), which is quite slow.
+
+            Todo: Generate variants for all supported mixed-type operations
             */
 
             var opAdd = SF.ParseMemberDeclaration($@"

@@ -18,4 +18,16 @@ public static class Utils {
                                             SF.IdentifierName("LayoutKind"),
                                             SF.IdentifierName("Explicit")))))))));
     }
+
+    public static string ToBitString(int value) {
+        string b = System.Convert.ToString(value, 2);
+        b = b.PadLeft(32, '0');
+        return b;
+    }
+
+    public static string ToBitString(ushort value) {
+        string b = System.Convert.ToString(value, 2);
+        b = b.PadLeft(16, '0');
+        return b;
+    }
 }
