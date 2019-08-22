@@ -95,17 +95,30 @@ namespace CodeGeneration {
 
     class Program  {
         public static void Main(string[] args) {
+            TestStuff();
+
             Console.WriteLine("Let's generate some code...");
             Console.WriteLine();
 
             var fixedPointTypes = GenerateFixedPointTypes(Config.LibraryNameFixedPoint);
-            var complexTypes = GenerateComplexTypes(Config.LibraryNameComplex, fixedPointTypes);
-            var linalgTypes = GenerateLinearAlgebraTypes(Config.LibraryNameLinearAlgebra, fixedPointTypes);
+            // var complexTypes = GenerateComplexTypes(Config.LibraryNameComplex, fixedPointTypes);
+            // var linalgTypes = GenerateLinearAlgebraTypes(Config.LibraryNameLinearAlgebra, fixedPointTypes);
 
             // ProxyTypeTest.RewriteScalarTypeTest();
 
             Console.WriteLine();
             Console.WriteLine("All done!");
+        }
+
+        private static void TestStuff() {
+            /*
+                Turns out non-32-bit word integer operators return int
+                Look, this won't compile without casting the result to int:
+             */
+            const short FractionMask = unchecked((short)0b0000_0000_0000_0000);
+            const short IntegerMask = ~FractionMask;
+            short v = 10;
+            short result = (short)((v & FractionMask) | IntegerMask);
         }
 
         private static List<(string typeName, SyntaxTree tree)> GenerateFixedPointTypes(string libName) {
@@ -114,11 +127,18 @@ namespace CodeGeneration {
             var types = new List<(string typeName, SyntaxTree tree)>();
 
             // Generate 32-bit fixed point types
-            for (int fractionalBits = 0; fractionalBits < 32; fractionalBits++) {
-                // Todo: instead of having typename separate, figure out how to
-                // extract it from the returned syntax tree
-                types.Add(FixedPointTypeGenerator.GenerateSigned32BitType(fractionalBits));
-            }
+            // var word = new WordType(WordSize.B32, WordSign.Signed);
+            // for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
+            //     types.Add(FixedPointTypeGenerator.GenerateSignedBitType(word, fractionalBits));
+            // }
+            // word = new WordType(WordSize.B16, WordSign.Signed);
+            // for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
+            //     types.Add(FixedPointTypeGenerator.GenerateSignedBitType(word, fractionalBits));
+            // }
+
+            var shortType = FixedPointTypeGenerator.GenerateSignedBitType(new WordType(WordSize.B16, WordSign.Signed), 0);
+            types.Add(shortType);
+            Console.WriteLine(shortType.Item2.GetRoot().NormalizeWhitespace().ToFullString());
 
             // Compile types into library, including needed references
             var references = ReferenceLoader.LoadUnityReferences();
@@ -275,6 +295,8 @@ namespace CodeGeneration {
 
             var span = diagnostic.Location.GetLineSpan();
 
+            Console.WriteLine(lines[span.StartLinePosition.Line-1]);
+
             var line = lines[span.StartLinePosition.Line];
             var lineStart = line.Substring(0, span.StartLinePosition.Character);
             var errorStart = line.Substring(span.StartLinePosition.Character);
@@ -287,6 +309,8 @@ namespace CodeGeneration {
             Console.Write(lineStart);
             Console.Write("[<!!!ERROR!!!>]");
             Console.Write(errorStart + "\n");
+
+            Console.WriteLine(lines[span.StartLinePosition.Line + 1]);
         }
 
         private static int FindNewline(string text, int startIndex) {
