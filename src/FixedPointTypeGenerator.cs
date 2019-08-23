@@ -77,12 +77,28 @@ namespace CodeGeneration {
     }
 
     public class FixedPointType {
-        public string name;
-        public WordType word;
+        public readonly string name;
+        public readonly WordType word;
+        public readonly int fractionalBits;
+        public int integerBits {
+            get => (int)word.Size - signBit - fractionalBits;
+        }
+        public int signBit {
+            get => (word.Sign == WordSign.Signed ? 1 : 0);
+        }
+        public int wordLength {
+            get => (int)word.Size;
+        }
 
-        public FixedPointType(string name, WordType word) {
-            this.name = name;
+        public FixedPointType(WordType word, int fractionalBits) {
             this.word = word;
+            this.fractionalBits = fractionalBits;
+
+            if (integerBits + fractionalBits != wordLength - signBit) {
+                throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - signBit));
+            }
+
+            this.name = string.Format("q{0}{1}_{2}", signBit == 1 ? "s" : "u", integerBits, fractionalBits);
         }
     }
 
@@ -102,14 +118,12 @@ namespace CodeGeneration {
             { new WordType(WordSize.B64, WordSign.Signed),      "long" },
         };
 
-        private static string GenerateSignBitMaskLiteral(in WordType wordDef) {
+        private static string GenerateSignBitMaskLiteral(in FixedPointType fType) {
             var maskBuilder = new StringBuilder();
-
-            int wordLength = (int)wordDef.Size;
 
             maskBuilder.Append("0b");
             maskBuilder.Append("1");
-            for (int i = 1; i < wordLength; i++) {
+            for (int i = 1; i < fType.wordLength; i++) {
                 if (i > 0 && i % 4 == 0) {
                     maskBuilder.Append("_");
                 }
@@ -119,25 +133,23 @@ namespace CodeGeneration {
             return maskBuilder.ToString();
         }
 
-        private static string GenerateFractionalMaskLiteral(in WordType wordDef, in int fractionalBits, string intBitChar = "0", string fracBitChar = "1") {
+        private static string GenerateFractionalMaskLiteral(in FixedPointType fType, string intBitChar = "0", string fracBitChar = "1") {
             var maskBuilder = new StringBuilder();
 
-            int wordLength = (int)wordDef.Size;
-            int signBit = (wordDef.Sign == WordSign.Signed ? 1 : 0);
-            int integerBits = wordLength - signBit - fractionalBits;
-
-            if (integerBits + fractionalBits != wordLength - signBit) {
-                throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - signBit));
+            int wordLength = (int)fType.word.Size;
+         
+            if (fType.integerBits + fType.fractionalBits != wordLength - fType.signBit) {
+                throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - fType.signBit));
             }
 
             maskBuilder.Append("0b");
-            for (int i = 0; i < integerBits; i++) {
+            for (int i = 0; i < fType.integerBits; i++) {
                 if (i > 0 && i % 4 == 0) {
                     maskBuilder.Append("_");
                 }
                 maskBuilder.Append(intBitChar);
             }
-            for (int i = integerBits; i < wordLength; i++) {
+            for (int i = fType.integerBits; i < wordLength; i++) {
                 if (i > 0 && i % 4 == 0) {
                     maskBuilder.Append("_");
                 }
@@ -151,57 +163,56 @@ namespace CodeGeneration {
             return field.SyntaxTree.GetRoot().DescendantNodesAndSelf().OfType<FieldDeclarationSyntax>().First().Declaration.Variables.First().Identifier;
         }
 
-        private static string GenerateRangeCheck(string variableName, SyntaxToken minName, SyntaxToken maxName, string typeName) {
+        private static string GenerateRangeCheck(FixedPointType fType, string variableName, SyntaxToken minName, SyntaxToken maxName) {
             return $@"
                 if ({variableName} < {minName} || {variableName} > {maxName}) {{
                     throw new System.ArgumentException(string.Format(
-                        ""value {{0}} lies outside of representable range [{{1}} , {{2}}] for {typeName}"",
+                        ""value {{0}} lies outside of representable range [{{1}} , {{2}}] for {fType.signBit}"",
                         {variableName},
                         {minName.ToString()},
                         {maxName.ToString()}));
                 }}";
         }
 
+        private static MemberDeclarationSyntax GenerateAdder(FixedPointType fType, string wordCastOpt) {
+            var opAdd = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {fType.name} operator +({fType.name} lhs, {fType.name} rhs) {{
+                    return new {fType.name}({wordCastOpt}(lhs.v + rhs.v));
+                }}");
+
+            return opAdd;
+        }
+
         /*
             Todo:
             - Find out the difference between .WithX and .AddX
-            - Question whether we need this extreme verbosity
-            - Make cast-to-word-type optional. ({wordType})
          */
-        public static (FixedPointType, SyntaxTree) GenerateType(in WordType wordDef, in int fractionalBits, in Options options) {
-            string wordType = DotNetWordTypes[wordDef];
-            int wordLength = (int)wordDef.Size;
-            int signBit = (wordDef.Sign == WordSign.Signed ? 1 : 0);
-            int integerBits = wordLength - signBit - fractionalBits;
-
-            var doubleWordDef = new WordType((WordSize)(wordLength * 2), wordDef.Sign);
+        public static (FixedPointType, SyntaxTree) GenerateType(in FixedPointType fType, in Options options) {
+            string wordType = DotNetWordTypes[fType.word];
+            
+            var doubleWordDef = new WordType((WordSize)(fType.wordLength * 2), fType.word.Sign);
             string doubleWordType = DotNetWordTypes[doubleWordDef];
             int doubleWordLength = (int)doubleWordDef.Size;
-            var signedWordDef = new WordType(wordDef.Size, WordSign.Signed);
+            var signedWordDef = new WordType(fType.word.Size, WordSign.Signed);
             string signedWordType = DotNetWordTypes[signedWordDef];
 
-            if (integerBits + fractionalBits != wordLength - signBit) {
-                throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - signBit));
-            }
-
-            string typeName = string.Format("q{0}{1}_{2}", signBit == 1 ? "s" : "u", integerBits, fractionalBits);
-
-            string fractionalBitMask =  GenerateFractionalMaskLiteral(wordDef, fractionalBits);
-            string integerBitMask =     GenerateFractionalMaskLiteral(wordDef, fractionalBits, "1", "0");
+            string fractionalBitMask =  GenerateFractionalMaskLiteral(fType);
+            string integerBitMask =     GenerateFractionalMaskLiteral(fType, "1", "0");
 
             /*
             Calculate minimum and maximum values in fractional representation
-            Note: integerBits already has 1 less in case of sign bit, see above.
+            Note: fType.integerBits already has 1 less in case of sign bit, see above.
              */
             double rangeMinDoubleValue = 0f;
             double rangeMaxDoubleValue = 0f;
-            double epsilonDoubleValue = epsilonDoubleValue = 1.0 / Math.Pow(2, fractionalBits);
-            if (signBit == 0) {
+            double epsilonDoubleValue = epsilonDoubleValue = 1.0 / Math.Pow(2, fType.fractionalBits);
+            if (fType.signBit == 0) {
                 rangeMinDoubleValue = 0f;
-                rangeMaxDoubleValue = Math.Pow(2, integerBits) - Math.Pow(2, -integerBits);
+                rangeMaxDoubleValue = Math.Pow(2, fType.integerBits) - Math.Pow(2, -fType.integerBits);
             } else {
-                rangeMinDoubleValue = -Math.Pow(2, integerBits);
-                rangeMaxDoubleValue = Math.Pow(2, integerBits) - Math.Pow(2, -integerBits);
+                rangeMinDoubleValue = -Math.Pow(2, fType.integerBits);
+                rangeMaxDoubleValue = Math.Pow(2, fType.integerBits) - Math.Pow(2, -fType.integerBits);
             }
             float rangeMinFloatValue = (float)rangeMinDoubleValue;
             float rangeMaxFloatValue = (float)rangeMaxDoubleValue;
@@ -224,7 +235,7 @@ namespace CodeGeneration {
 
             var nameSpace = SF.NamespaceDeclaration(SF.ParseName("Ramjet.Math.FixedPoint"));
 
-            var type = SF.StructDeclaration(typeName)
+            var type = SF.StructDeclaration(fType.name)
                 .AddModifiers(SF.Token(SK.PublicKeyword))
                 .WithAttributeLists(Utils.GenerateStructLayoutAttributes());
 
@@ -247,7 +258,7 @@ namespace CodeGeneration {
                 $@"public const double EpsilonDouble = {epsilonDoubleValue}d;");
 
             var scale = SF.ParseMemberDeclaration(
-                $@"public const {signedWordType} Scale = {fractionalBits};");
+                $@"public const {signedWordType} Scale = {fType.fractionalBits};");
             var halfScale = SF.ParseMemberDeclaration(
                 $@"private const {signedWordType} HalfScale = Scale >> 1;");
             
@@ -257,12 +268,12 @@ namespace CodeGeneration {
                 $@"private const {wordType} IntegerMask = unchecked(({wordType}){integerBitMask});");
 
             var zero = SF.ParseMemberDeclaration(
-                $@"public static readonly {typeName} Zero = new {typeName}(0);");
+                $@"public static readonly {fType.name} Zero = new {fType.name}(0);");
             var one = SF.ParseMemberDeclaration(
-                $@"public static readonly {typeName} One = FromInt(1);");
+                $@"public static readonly {fType.name} One = FromInt(1);");
 
             var epsilon = SF.ParseMemberDeclaration(
-                $@"public static readonly {typeName} Epsilon = new {typeName}(1);");
+                $@"public static readonly {fType.name} Epsilon = new {fType.name}(1);");
             var halfEpsilon = SF.ParseMemberDeclaration(
                 $@"private const {doubleWordType} HalfEpsilon = ({doubleWordType})(Scale > 0 ? (({wordType})1 << (Scale-1)) : (0));");
 
@@ -284,11 +295,12 @@ namespace CodeGeneration {
                 halfEpsilon);
 
             // Optional sign mask constant for signed types
-            if (signBit == 1) {
-                string signBitMask = GenerateSignBitMaskLiteral(wordDef);
+            if (fType.signBit == 1) {
+                string signBitMask = GenerateSignBitMaskLiteral(fType);
 
                 var signMask = SF.ParseMemberDeclaration(
                     $@"private const {wordType} SignMask = unchecked(({wordType}){signBitMask});");
+                    
                 type = type.AddMembers(signMask);
             }
 
@@ -303,7 +315,7 @@ namespace CodeGeneration {
 
             var constructor = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public {typeName}({wordType} x) {{
+                public {fType.name}({wordType} x) {{
                     v = x;
                 }}");
 
@@ -316,13 +328,13 @@ namespace CodeGeneration {
 
             /* Optional cast-to-int instruction needed for methods on
             unsigned types that return them as signed. */
-            string intCastOpt = signBit == 0 ? "(int)" : "";
+            string intCastOpt = fType.signBit == 0 ? "(int)" : "";
 
             /* Optional cast-to-wordType instruction needed for code
             that performs arithmetic with small types, with in C#
             always return int for some reason. */
             string wordCast = $@"({wordType})";
-            string wordCastOpt = wordLength < 32 ? wordCast : "";
+            string wordCastOpt = fType.wordLength < 32 ? wordCast : "";
 
             /* Optional cast-to-wordType instruction needed for code
             that performs arithmetic with small types, with in C#
@@ -341,67 +353,67 @@ namespace CodeGeneration {
             var intRangeCheckOpt = "";
             if (options.AddRangeChecks) {
                 intRangeCheckOpt = GenerateRangeCheck(
+                    fType,
                     "x",
                     GetFieldIdentifier(rangeMinInt),
-                    GetFieldIdentifier(rangeMaxInt),
-                    typeName);
+                    GetFieldIdentifier(rangeMaxInt));
             }
             var fromInt = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} FromInt(int x) {{
+                public static {fType.name} FromInt(int x) {{
                     {intRangeCheckOpt}
-                    return new {typeName}(({wordType})(x << Scale));
+                    return new {fType.name}(({wordType})(x << Scale));
                 }}");
 
             var toInt = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static int ToInt({typeName} f) {{
+                public static int ToInt({fType.name} f) {{
                     return {intCastOpt}(f.v >> Scale);
                 }}");
 
             var floatRangeCheckOpt = "";
             if (options.AddRangeChecks) {
                 floatRangeCheckOpt = GenerateRangeCheck(
+                    fType,
                     "x",
                     GetFieldIdentifier(rangeMinFloat),
-                    GetFieldIdentifier(rangeMaxFloat),
-                    typeName);
+                    GetFieldIdentifier(rangeMaxFloat));
             }
             var fromFloat = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} FromFloat(float x) {{
+                public static {fType.name} FromFloat(float x) {{
                     {floatRangeCheckOpt}
-                    return new {typeName}(
+                    return new {fType.name}(
                         ({wordType})math.round((x * (float)(1 << Scale)))
                     );
                 }}");
 
             var toFloat = SF.ParseMemberDeclaration($@"
                  [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static float ToFloat({typeName} f) {{
+                public static float ToFloat({fType.name} f) {{
                     return f.v / (float)((1 << Scale));
                 }}");
 
             var doubleRangeCheckOpt = "";
             if (options.AddRangeChecks) {
                 doubleRangeCheckOpt = GenerateRangeCheck(
+                    fType,
                     "x",
                     GetFieldIdentifier(rangeMinDouble),
-                    GetFieldIdentifier(rangeMaxDouble),
-                    typeName);
+                    GetFieldIdentifier(rangeMaxDouble));
             }
             var fromDouble = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} FromDouble(double x) {{
+                public static {fType.name} FromDouble(double x) {{
                     {doubleRangeCheckOpt}
-                    return new {typeName}(
+                    return new {fType.name}(
                         ({wordType})math.round((x * (double)(1 << Scale)))
                     );
                 }}");
 
             var toDouble = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static double ToDouble({typeName} f) {{
+                public static double ToDouble({fType.name} f) {{
                     return f.v / (double)(1 << Scale);
                 }}");
 
@@ -422,21 +434,21 @@ namespace CodeGeneration {
             two's complement into account.
 
             Could also use double bit shifting like so:
-            return new {typeName}((f.v << (Scale-1)) >> (Scale-1));
+            return new {fType.name}((f.v << (Scale-1)) >> (Scale-1));
             */
             var fractNegativePath = "";
-            if (signBit == 1) {
+            if (fType.signBit == 1) {
                 // Code path for signed types, in case sign bit is set
                 fractNegativePath = $@"
                 if ((f.v & SignMask) != ({wordType})0) {{
-                    return new {typeName}({wordCastOpt}((f.v & FractionMask) | IntegerMask));
+                    return new {fType.name}({wordCastOpt}((f.v & FractionMask) | IntegerMask));
                 }}";
             }
             var frac = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} Frac({typeName} f) {{
+                public static {fType.name} Frac({fType.name} f) {{
                     {fractNegativePath}
-                    return new {typeName}({wordCastOpt}(f.v & FractionMask));
+                    return new {fType.name}({wordCastOpt}(f.v & FractionMask));
                 }}");
 
             /*
@@ -447,8 +459,8 @@ namespace CodeGeneration {
             */
             var whole = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} Whole({typeName} f) {{
-                    return new {typeName}({wordCastOpt}(f.v & IntegerMask));
+                public static {fType.name} Whole({fType.name} f) {{
+                    return new {fType.name}({wordCastOpt}(f.v & IntegerMask));
                 }}");
 
             type = type.AddMembers(
@@ -466,26 +478,26 @@ namespace CodeGeneration {
 
             var opAdd = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} operator +({typeName} lhs, {typeName} rhs) {{
-                    return new {typeName}({wordCastOpt}(lhs.v + rhs.v));
+                public static {fType.name} operator +({fType.name} lhs, {fType.name} rhs) {{
+                    return new {fType.name}({wordCastOpt}(lhs.v + rhs.v));
                 }}");
 
             var opIncr = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} operator ++({typeName} lhs) {{
-                    return new {typeName}({wordCastOpt}(lhs.v+1));
+                public static {fType.name} operator ++({fType.name} lhs) {{
+                    return new {fType.name}({wordCastOpt}(lhs.v+1));
                 }}");
 
             var opSub = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} operator -({typeName} lhs, {typeName} rhs) {{
-                    return new {typeName}({wordCastOpt}(lhs.v - rhs.v));
+                public static {fType.name} operator -({fType.name} lhs, {fType.name} rhs) {{
+                    return new {fType.name}({wordCastOpt}(lhs.v - rhs.v));
                 }}");
 
             var opDecr = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} operator --({typeName} lhs) {{
-                    return new {typeName}({wordCastOpt}(lhs.v - 1));
+                public static {fType.name} operator --({fType.name} lhs) {{
+                    return new {fType.name}({wordCastOpt}(lhs.v - 1));
                 }}");
 
             /*
@@ -500,15 +512,15 @@ namespace CodeGeneration {
             You can pre-shift, throwing out some precision, but staying within register limits
             I chose HalfScale here, but you could >> 4 the inputs, with a final shift at the end
 
-            return new {typeName}((lhs.v>>HalfScale) * (rhs.v>>HalfScale)); // >> 0
+            return new {fType.name}((lhs.v>>HalfScale) * (rhs.v>>HalfScale)); // >> 0
              */
             var opMul = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} operator *({typeName} lhs, {typeName} rhs) {{
+                public static {fType.name} operator *({fType.name} lhs, {fType.name} rhs) {{
                     {doubleWordType} lhsLong = lhs.v;
                     {doubleWordType} rhsLong = rhs.v;
                     {doubleWordType} result = {doubleWordCastOpt}((lhsLong * rhsLong) + HalfEpsilon);
-                    return new {typeName}({wordCast}(result >> Scale));
+                    return new {fType.name}({wordCast}(result >> Scale));
                 }}");
 
             /*
@@ -521,13 +533,13 @@ namespace CodeGeneration {
 
             Here instead we do dangerous shifting to stay in 32-bit. Works
             for subsets of numbers, I guess. YMMV.
-            return new {typeName}((int)((lhs.v << HalfScale) / (rhs.v >> HalfScale)));
+            return new {fType.name}((int)((lhs.v << HalfScale) / (rhs.v >> HalfScale)));
             */
 
             var opDiv = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} operator /({typeName} lhs, {typeName} rhs) {{
-                    return new {typeName}(
+                public static {fType.name} operator /({fType.name} lhs, {fType.name} rhs) {{
+                    return new {fType.name}(
                         ({wordType})((({doubleWordCast}lhs.v << Scale) / rhs.v))
                     );
                 }}");
@@ -544,19 +556,19 @@ namespace CodeGeneration {
 
             var equals = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public bool Equals({typeName} rhs) {{ return v == rhs.v; }}");
+                public bool Equals({fType.name} rhs) {{ return v == rhs.v; }}");
 
             var equalsObj = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public override bool Equals(object o) {{ return Equals(({typeName})o); }}");
+                public override bool Equals(object o) {{ return Equals(({fType.name})o); }}");
 
             var opEq = SF.ParseMemberDeclaration($@"
-                public static bool operator ==({typeName} lhs, {typeName} rhs) {{
+                public static bool operator ==({fType.name} lhs, {fType.name} rhs) {{
                     return lhs.Equals(rhs);
                 }}");
 
             var opNEq = SF.ParseMemberDeclaration($@"
-                public static bool operator !=({typeName} lhs, {typeName} rhs) {{
+                public static bool operator !=({fType.name} lhs, {fType.name} rhs) {{
                     return !lhs.Equals(rhs);
                 }}");
 
@@ -575,13 +587,13 @@ namespace CodeGeneration {
             var toString = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public override string ToString() {{
-                    return string.Format(""{typeName}({{0}})"", ToDouble(this));
+                    return string.Format(""{fType.name}({{0}})"", ToDouble(this));
                 }}");
 
             var toStringFormat = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public string ToString(string format, IFormatProvider formatProvider) {{
-                    return string.Format(""{typeName}({{0}})"", ToDouble(this));
+                    return string.Format(""{fType.name}({{0}})"", ToDouble(this));
                 }}");
 
             var toStringBinary = SF.ParseMemberDeclaration($@"
@@ -600,7 +612,7 @@ namespace CodeGeneration {
             nameSpace = nameSpace.AddMembers(type);
             unit = unit.AddMembers(nameSpace);
 
-            return (new FixedPointType(typeName, wordDef), CSharpSyntaxTree.Create(unit));
+            return (fType, CSharpSyntaxTree.Create(unit));
         }
     }
 }

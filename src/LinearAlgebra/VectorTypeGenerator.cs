@@ -41,13 +41,12 @@ namespace CodeGeneration {
             "w"
         };
 
-        public static (FixedPointType, SyntaxTree) GenerateType(in FixedPointType scalarType, in int numDimensions) {
+        public static (FixedPointType, SyntaxTree) GenerateType(FixedPointType fType, in int numDimensions) {
             if (numDimensions <= 0 || numDimensions > 4) {
                 throw new ArgumentException("Vector types currently only support 1-4 dimensions");
             }
 
-            string scalarTypeName = scalarType.name;
-            string typeName = string.Format("vec{0}_{1}", numDimensions, scalarTypeName);
+            string typeName = string.Format("vec{0}_{1}", numDimensions, fType.name);
 
             var usingStrings = new List<string> {
                 "System",
@@ -75,7 +74,7 @@ namespace CodeGeneration {
 
             int fieldOffset = 0;
             for (int i = 0; i < numDimensions; i++) {
-                var coeff = SF.ParseMemberDeclaration($@"[FieldOffset({fieldOffset})] public {scalarTypeName} {CoefficientNames[i]};");
+                var coeff = SF.ParseMemberDeclaration($@"[FieldOffset({fieldOffset})] public {fType.name} {CoefficientNames[i]};");
                 coefficientFields.Add(coeff);
                 fieldOffset += 4; // Todo: automatically do this, by sizeof type
             }
@@ -84,7 +83,7 @@ namespace CodeGeneration {
 
             var zero = SF.ParseMemberDeclaration($@"public static readonly {typeName} Zero = {typeName}.FromInt(0);");
 
-            var constructorArgs = coefficientFields.Select((coeff, index) => $@"{scalarTypeName} {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
+            var constructorArgs = coefficientFields.Select((coeff, index) => $@"{fType.name} {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
             var constructorAssignments = coefficientFields.Select((coeff, index) => $@"this.{CoefficientNames[index]} = {CoefficientNames[index]}").Aggregate((a, b) => a + ";\n" + b) + ";";
 
             var constructor = SF.ParseMemberDeclaration($@"
@@ -97,7 +96,7 @@ namespace CodeGeneration {
                 constructor);
 
             var fromIntArgs = coefficientFields.Select((coeff, index) => $@"int {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
-            var fromIntAssignments = coefficientFields.Select((coeff, index) => $@"{scalarTypeName}.FromInt({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
+            var fromIntAssignments = coefficientFields.Select((coeff, index) => $@"{fType.name}.FromInt({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
             var fromInt = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} FromInt({fromIntArgs}) {{
@@ -115,7 +114,7 @@ namespace CodeGeneration {
             //     }}");
 
             var fromFloatArgs = coefficientFields.Select((coeff, index) => $@"float {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
-            var fromFloatAssignments = coefficientFields.Select((coeff, index) => $@"{scalarTypeName}.FromFloat({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
+            var fromFloatAssignments = coefficientFields.Select((coeff, index) => $@"{fType.name}.FromFloat({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
             var fromFloat = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} FromFloat({fromFloatArgs}) {{
@@ -133,7 +132,7 @@ namespace CodeGeneration {
             //     }}");
 
             var fromDoubleArgs = coefficientFields.Select((coeff, index) => $@"double {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
-            var fromDoubleAssignments = coefficientFields.Select((coeff, index) => $@"{scalarTypeName}.FromDouble({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
+            var fromDoubleAssignments = coefficientFields.Select((coeff, index) => $@"{fType.name}.FromDouble({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
             var fromDouble = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} FromFloat({fromDoubleArgs}) {{
@@ -186,7 +185,7 @@ namespace CodeGeneration {
                 .Aggregate((a, b) => a + ", \n" + b);
             var opMulScalarRight = SF.ParseMemberDeclaration($@"
                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} operator *({typeName} lhs, {scalarTypeName} rhs) {{
+                public static {typeName} operator *({typeName} lhs, {fType.name} rhs) {{
                     return new {typeName}(
                         {opMulScalarRightInstructions}
                     );
@@ -196,7 +195,7 @@ namespace CodeGeneration {
                 .Aggregate((a, b) => a + ", \n" + b);
             var opDivScalarRight = SF.ParseMemberDeclaration($@"
                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} operator /({typeName} lhs, {scalarTypeName} rhs) {{
+                public static {typeName} operator /({typeName} lhs, {fType.name} rhs) {{
                     return new {typeName}(
                         {opDivScalarRightInstructions}
                     );
@@ -218,7 +217,7 @@ namespace CodeGeneration {
                 .Aggregate((a, b) => a + " +\n" + b);
             var dotProduct = SF.ParseMemberDeclaration($@"
                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {scalarTypeName} dot({typeName} lhs, {typeName} rhs) {{
+                public static {fType.name} dot({typeName} lhs, {typeName} rhs) {{
                     return {dotInstructions};
                 }}");
 
@@ -226,7 +225,7 @@ namespace CodeGeneration {
                 .Aggregate((a, b) => a + " +\n" + b);
             var lengthSq = SF.ParseMemberDeclaration($@"
                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {scalarTypeName} lengthsq({typeName} lhs) {{
+                public static {fType.name} lengthsq({typeName} lhs) {{
                     return {lengthSqInstructions};
                 }}");
 
@@ -321,7 +320,7 @@ namespace CodeGeneration {
 
             var toStringReplaceList = coefficientFields.Select((coeff, index) => $@"{{{index}:0.000}}")
                .Aggregate((a, b) => a + ", " + b);
-            var toStringCoeffs = coefficientFields.Select((coeff, index) => $@"{scalarTypeName}.ToFloat(this.{CoefficientNames[index]})")
+            var toStringCoeffs = coefficientFields.Select((coeff, index) => $@"{fType.name}.ToFloat(this.{CoefficientNames[index]})")
                .Aggregate((a, b) => a + ", " + b);
             var toString = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -343,7 +342,7 @@ namespace CodeGeneration {
             nameSpace = nameSpace.AddMembers(type);
             unit = unit.AddMembers(nameSpace);
 
-            return (new FixedPointType(typeName, scalarType.word), CSharpSyntaxTree.Create(unit));
+            return (fType, CSharpSyntaxTree.Create(unit));
         }
     }
 }

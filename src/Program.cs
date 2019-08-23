@@ -142,43 +142,28 @@ namespace CodeGeneration {
                 AddRangeChecks = true,
             };
 
-            // Generate signed 32-bit fixed point types
-            var word = new WordType(WordSize.B32, WordSign.Signed);
-            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
-                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits, options));
+            // Loop over given type, generate all variants
+            void Generate(WordType word) {
+                for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
+                    var fType = new FixedPointType(
+                        word,
+                        fractionalBits
+                    );
+                    types.Add(FixedPointTypeGenerator.GenerateType(fType, options));
+                }
             }
 
-            // Generate unsigned 32-bit fixed point types
-            word = new WordType(WordSize.B32, WordSign.Unsigned);
-            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
-                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits, options));
-            }
+            // Generate 32-bit fixed point types
+            Generate(new WordType(WordSize.B32, WordSign.Signed));
+            Generate(new WordType(WordSize.B32, WordSign.Unsigned));
 
-            // Generate signed 16-bit fixed point types
-            word = new WordType(WordSize.B16, WordSign.Signed);
-            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
-                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits, options));
-            }
+            // Generate 16-bit fixed point types
+            Generate(new WordType(WordSize.B16, WordSign.Signed));
+            Generate(new WordType(WordSize.B16, WordSign.Unsigned)); // Todo: q0_WordSize, is it included?
 
-            // Generate unsigned 16-bit fixed point types
-            // Todo: q0_WordSize, is it included?
-            word = new WordType(WordSize.B16, WordSign.Unsigned);
-            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
-                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits, options));
-            }
-
-            // Generate signed 8-bit fixed point types
-            word = new WordType(WordSize.B8, WordSign.Signed);
-            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
-                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits, options));
-            }
-
-            // Generate unsigned 8-bit fixed point types
-            // Todo: q0_WordSize, is it included?
-            word = new WordType(WordSize.B8, WordSign.Unsigned);
-            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
-                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits, options));
-            }
+            // Generate 8-bit fixed point types
+            Generate(new WordType(WordSize.B8, WordSign.Signed));
+            Generate(new WordType(WordSize.B8, WordSign.Unsigned)); // Todo: q0_WordSize, is it included?
 
             // Compile types into library, including needed references
             var references = ReferenceLoader.LoadUnityReferences();
