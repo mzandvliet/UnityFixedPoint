@@ -87,6 +87,21 @@ namespace CodeGeneration {
     }
 
     public static class FixedPointTypeGenerator {
+        public class Options {
+            public bool AddRangeChecks = true;
+        }
+
+        public static readonly Dictionary<WordType, string> DotNetWordTypes = new Dictionary<WordType, string> {
+            { new WordType(WordSize.B8 , WordSign.Unsigned),    "byte" },
+            { new WordType(WordSize.B16, WordSign.Unsigned),    "ushort" },
+            { new WordType(WordSize.B32, WordSign.Unsigned),    "uint" },
+            { new WordType(WordSize.B64, WordSign.Unsigned),    "ulong" },
+            { new WordType(WordSize.B8 , WordSign.Signed),      "sbyte" },
+            { new WordType(WordSize.B16, WordSign.Signed),      "short" },
+            { new WordType(WordSize.B32, WordSign.Signed),      "int" },
+            { new WordType(WordSize.B64, WordSign.Signed),      "long" },
+        };
+
         private static string GenerateSignBitMaskLiteral(in WordType wordDef) {
             var maskBuilder = new StringBuilder();
 
@@ -132,16 +147,20 @@ namespace CodeGeneration {
             return maskBuilder.ToString();
         }
 
-        public static readonly Dictionary<WordType, string> DotNetWordTypes = new Dictionary<WordType, string> {
-            { new WordType(WordSize.B8 , WordSign.Unsigned),    "byte" },
-            { new WordType(WordSize.B16, WordSign.Unsigned),    "ushort" },
-            { new WordType(WordSize.B32, WordSign.Unsigned),    "uint" },
-            { new WordType(WordSize.B64, WordSign.Unsigned),    "ulong" },
-            { new WordType(WordSize.B8 , WordSign.Signed),      "sbyte" },
-            { new WordType(WordSize.B16, WordSign.Signed),      "short" },
-            { new WordType(WordSize.B32, WordSign.Signed),      "int" },
-            { new WordType(WordSize.B64, WordSign.Signed),      "long" },
-        };
+        private static SyntaxToken GetFieldIdentifier(MemberDeclarationSyntax field) {
+            return field.SyntaxTree.GetRoot().DescendantNodesAndSelf().OfType<FieldDeclarationSyntax>().First().Declaration.Variables.First().Identifier;
+        }
+
+        private static string GenerateRangeCheck(string variableName, SyntaxToken minName, SyntaxToken maxName, string typeName) {
+            return $@"
+                if ({variableName} < {minName} || {variableName} > {maxName}) {{
+                    throw new System.ArgumentException(string.Format(
+                        ""value {{0}} lies outside of representable range [{{1}} , {{2}}] for {typeName}"",
+                        {variableName},
+                        {minName.ToString()},
+                        {maxName.ToString()}));
+                }}";
+        }
 
         /*
             Todo:
@@ -149,7 +168,7 @@ namespace CodeGeneration {
             - Question whether we need this extreme verbosity
             - Make cast-to-word-type optional. ({wordType})
          */
-        public static (FixedPointType, SyntaxTree) GenerateType(in WordType wordDef, in int fractionalBits) {
+        public static (FixedPointType, SyntaxTree) GenerateType(in WordType wordDef, in int fractionalBits, in Options options) {
             string wordType = DotNetWordTypes[wordDef];
             int wordLength = (int)wordDef.Size;
             int signBit = (wordDef.Sign == WordSign.Signed ? 1 : 0);
@@ -174,17 +193,22 @@ namespace CodeGeneration {
             Calculate minimum and maximum values in fractional representation
             Note: integerBits already has 1 less in case of sign bit, see above.
              */
-            double rangeMinDouble = 0f;
-            double rangeMaxDouble = 0f;
-            double epsilonDouble = epsilonDouble = 1.0 / Math.Pow(2, fractionalBits);
+            double rangeMinDoubleValue = 0f;
+            double rangeMaxDoubleValue = 0f;
+            double epsilonDoubleValue = epsilonDoubleValue = 1.0 / Math.Pow(2, fractionalBits);
             if (signBit == 0) {
-                rangeMinDouble = 0f;
-                rangeMaxDouble = Math.Pow(2, integerBits) - Math.Pow(2, -integerBits);
+                rangeMinDoubleValue = 0f;
+                rangeMaxDoubleValue = Math.Pow(2, integerBits) - Math.Pow(2, -integerBits);
             } else {
-                rangeMinDouble = -Math.Pow(2, integerBits);
-                rangeMaxDouble = Math.Pow(2, integerBits) - Math.Pow(2, -integerBits);
+                rangeMinDoubleValue = -Math.Pow(2, integerBits);
+                rangeMaxDoubleValue = Math.Pow(2, integerBits) - Math.Pow(2, -integerBits);
             }
+            float rangeMinFloatValue = (float)rangeMinDoubleValue;
+            float rangeMaxFloatValue = (float)rangeMaxDoubleValue;
+            int rangeMinIntValue = (int)rangeMinDoubleValue; // Todo: rounding/flooring
+            int rangeMaxIntValue = (int)rangeMaxDoubleValue;
 
+            // Create Type, add usings
             var usingStrings = new List<string> {
                 "System", 
                 "System.Runtime.CompilerServices",
@@ -206,12 +230,21 @@ namespace CodeGeneration {
 
             // Constants
 
-            var rangeMinRational = SF.ParseMemberDeclaration(
-                $@"public const double RangeMinRational = {rangeMinDouble};");
-            var rangeMaxRational = SF.ParseMemberDeclaration(
-                $@"public const double RangeMaxRational = {rangeMaxDouble};");
-            var epsilonRational = SF.ParseMemberDeclaration(
-                $@"public const double EpsilonRational = {epsilonDouble};");
+            var rangeMinInt = SF.ParseMemberDeclaration(
+                $@"public const int RangeMinInt = {rangeMinIntValue};");
+            var rangeMaxInt = SF.ParseMemberDeclaration(
+                $@"public const int RangeMaxInt = {rangeMaxIntValue};");
+            var rangeMinFloat = SF.ParseMemberDeclaration(
+                $@"public const float RangeMinFloat = {rangeMinFloatValue}f;");
+            var rangeMaxFloat = SF.ParseMemberDeclaration(
+                $@"public const float RangeMaxFloat = {rangeMaxFloatValue}f;");
+            var rangeMinDouble = SF.ParseMemberDeclaration(
+                $@"public const double RangeMinDouble = {rangeMinDoubleValue}d;");
+            var rangeMaxDouble = SF.ParseMemberDeclaration(
+                $@"public const double RangeMaxDouble = {rangeMaxDoubleValue}d;");
+                
+            var epsilonDouble = SF.ParseMemberDeclaration(
+                $@"public const double EpsilonDouble = {epsilonDoubleValue}d;");
 
             var scale = SF.ParseMemberDeclaration(
                 $@"public const {signedWordType} Scale = {fractionalBits};");
@@ -234,9 +267,13 @@ namespace CodeGeneration {
                 $@"private const {doubleWordType} HalfEpsilon = ({doubleWordType})(Scale > 0 ? (({wordType})1 << (Scale-1)) : (0));");
 
             type = type.AddMembers(
-                rangeMinRational,
-                rangeMaxRational,
-                epsilonRational,
+                rangeMinInt,
+                rangeMaxInt,
+                rangeMinFloat,
+                rangeMaxFloat,
+                rangeMinDouble,
+                rangeMaxDouble,
+                epsilonDouble,
                 scale,
                 halfScale,
                 fractionMask,
@@ -301,9 +338,18 @@ namespace CodeGeneration {
                 - explicit casting
             */
 
+            var intRangeCheckOpt = "";
+            if (options.AddRangeChecks) {
+                intRangeCheckOpt = GenerateRangeCheck(
+                    "x",
+                    GetFieldIdentifier(rangeMinInt),
+                    GetFieldIdentifier(rangeMaxInt),
+                    typeName);
+            }
             var fromInt = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} FromInt(int x) {{
+                    {intRangeCheckOpt}
                     return new {typeName}(({wordType})(x << Scale));
                 }}");
 
@@ -313,9 +359,18 @@ namespace CodeGeneration {
                     return {intCastOpt}(f.v >> Scale);
                 }}");
 
+            var floatRangeCheckOpt = "";
+            if (options.AddRangeChecks) {
+                floatRangeCheckOpt = GenerateRangeCheck(
+                    "x",
+                    GetFieldIdentifier(rangeMinFloat),
+                    GetFieldIdentifier(rangeMaxFloat),
+                    typeName);
+            }
             var fromFloat = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} FromFloat(float x) {{
+                    {floatRangeCheckOpt}
                     return new {typeName}(
                         ({wordType})math.round((x * (float)(1 << Scale)))
                     );
@@ -327,9 +382,18 @@ namespace CodeGeneration {
                     return f.v / (float)((1 << Scale));
                 }}");
 
+            var doubleRangeCheckOpt = "";
+            if (options.AddRangeChecks) {
+                doubleRangeCheckOpt = GenerateRangeCheck(
+                    "x",
+                    GetFieldIdentifier(rangeMinDouble),
+                    GetFieldIdentifier(rangeMaxDouble),
+                    typeName);
+            }
             var fromDouble = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} FromDouble(double x) {{
+                    {doubleRangeCheckOpt}
                     return new {typeName}(
                         ({wordType})math.round((x * (double)(1 << Scale)))
                     );
