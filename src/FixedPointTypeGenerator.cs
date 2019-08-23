@@ -157,6 +157,7 @@ namespace CodeGeneration {
 
             var doubleWordDef = new WordType((WordSize)(wordLength * 2), wordDef.Sign);
             string doubleWordType = DotNetWordTypes[doubleWordDef];
+            int doubleWordLength = (int)doubleWordDef.Size;
             var signedWordDef = new WordType(wordDef.Size, WordSign.Signed);
             string signedWordType = DotNetWordTypes[signedWordDef];
 
@@ -250,9 +251,23 @@ namespace CodeGeneration {
 
             // === Methods ===
 
+            /* Some optional type casts, needed in special cases. */
+
             /* Optional cast-to-int instruction needed for methods on
             unsigned types that return them as signed. */
-            string intCast = signBit == 0 ? "(int)" : "";
+            string intCastOpt = signBit == 0 ? "(int)" : "";
+
+            /* Optional cast-to-wordType instruction needed for code
+            that performs arithmetic with small types, with in C#
+            always return int for some reason. */
+            string wordCast = $@"({wordType})";
+            string wordCastOpt = wordLength < 32 ? wordCast : "";
+
+            /* Optional cast-to-wordType instruction needed for code
+            that performs arithmetic with small types, with in C#
+            always return int for some reason. */
+            string doubleWordCast = $@"({doubleWordType})";
+            string doubleWordCastOpt = doubleWordLength < 32 ? doubleWordCast : "";
 
             /*
             Type conversions
@@ -271,7 +286,7 @@ namespace CodeGeneration {
             var toInt = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static int ToInt({typeName} f) {{
-                    return {intCast}(f.v >> Scale);
+                    return {intCastOpt}(f.v >> Scale);
                 }}");
 
             var fromFloat = SF.ParseMemberDeclaration($@"
@@ -299,7 +314,7 @@ namespace CodeGeneration {
             var toDouble = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static double ToDouble({typeName} f) {{
-                    return ({wordType})(f.v / (double)((1 << Scale)));
+                    return f.v / (double)(1 << Scale);
                 }}");
 
             type = type.AddMembers(
@@ -326,14 +341,14 @@ namespace CodeGeneration {
                 // Code path for signed types, in case sign bit is set
                 fractNegativePath = $@"
                 if ((f.v & SignMask) != ({wordType})0) {{
-                    return new {typeName}(({wordType})((f.v & FractionMask) | IntegerMask));
+                    return new {typeName}({wordCastOpt}((f.v & FractionMask) | IntegerMask));
                 }}";
             }
             var frac = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} Frac({typeName} f) {{
                     {fractNegativePath}
-                    return new {typeName}(({wordType})(f.v & FractionMask));
+                    return new {typeName}({wordCastOpt}(f.v & FractionMask));
                 }}");
 
             /*
@@ -345,7 +360,7 @@ namespace CodeGeneration {
             var whole = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} Whole({typeName} f) {{
-                    return new {typeName}(({wordType})(f.v & IntegerMask));
+                    return new {typeName}({wordCastOpt}(f.v & IntegerMask));
                 }}");
 
             type = type.AddMembers(
@@ -364,25 +379,25 @@ namespace CodeGeneration {
             var opAdd = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} operator +({typeName} lhs, {typeName} rhs) {{
-                    return new {typeName}(({wordType})(lhs.v + rhs.v));
+                    return new {typeName}({wordCastOpt}(lhs.v + rhs.v));
                 }}");
 
             var opIncr = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} operator ++({typeName} lhs) {{
-                    return new {typeName}(({wordType})(lhs.v+1));
+                    return new {typeName}({wordCastOpt}(lhs.v+1));
                 }}");
 
             var opSub = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} operator -({typeName} lhs, {typeName} rhs) {{
-                    return new {typeName}(({wordType})(lhs.v - rhs.v));
+                    return new {typeName}({wordCastOpt}(lhs.v - rhs.v));
                 }}");
 
             var opDecr = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} operator --({typeName} lhs) {{
-                    return new {typeName}(({wordType})(lhs.v - 1));
+                    return new {typeName}({wordCastOpt}(lhs.v - 1));
                 }}");
 
             /*
@@ -404,8 +419,8 @@ namespace CodeGeneration {
                 public static {typeName} operator *({typeName} lhs, {typeName} rhs) {{
                     {doubleWordType} lhsLong = lhs.v;
                     {doubleWordType} rhsLong = rhs.v;
-                    {doubleWordType} result = (lhsLong * rhsLong) + HalfEpsilon;
-                    return new {typeName}(({wordType})(result >> Scale));
+                    {doubleWordType} result = {doubleWordCastOpt}((lhsLong * rhsLong) + HalfEpsilon);
+                    return new {typeName}({wordCast}(result >> Scale));
                 }}");
 
             /*
@@ -424,7 +439,9 @@ namespace CodeGeneration {
             var opDiv = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {typeName} operator /({typeName} lhs, {typeName} rhs) {{
-                    return new {typeName}(({wordType})(((({doubleWordType})lhs.v << Scale) / rhs.v)));
+                    return new {typeName}(
+                        ({wordType})((({doubleWordCast}lhs.v << Scale) / rhs.v))
+                    );
                 }}");
 
             type = type.AddMembers(
@@ -465,7 +482,7 @@ namespace CodeGeneration {
 
             var getHashCode = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public override int GetHashCode() {{ return {intCast}v; }}");
+                public override int GetHashCode() {{ return {intCastOpt}v; }}");
 
             var toString = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]

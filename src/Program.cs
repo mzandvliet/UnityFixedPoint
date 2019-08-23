@@ -96,38 +96,38 @@ namespace CodeGeneration {
     class Program  {
         public static void Main(string[] args) {
             // TestStuff();
+            // ProxyTypeTest.RewriteScalarTypeTest();
 
+            GenerateLibraries();
+        }
+
+        private static void TestStuff() {
+            // ({wordType})((({doubleWordCast}lhs.v << Scale) / rhs.v))
+
+            byte four = (byte)(4 << 4);
+            byte eight = (byte)(8 << 4);
+            byte result = (byte)(((ushort)four << 4) / eight);
+            Console.WriteLine(result / (double)(1 << 4));
+        }
+
+        private static void GenerateLibraries() {
             Console.WriteLine("Let's generate some code...");
             Console.WriteLine();
+
+            // Clean output folder
+            if (Directory.Exists(Config.OutputPathLib)) {
+                Directory.Delete(Config.OutputPathLib, true);
+            }
+            // Ensure directory structure
+            Directory.CreateDirectory(Config.OutputPathLib);
+            Directory.CreateDirectory(Config.OutputPathSource);
 
             var fixedPointTypes = GenerateFixedPointTypes(Config.LibraryNameFixedPoint);
             // var complexTypes = GenerateComplexTypes(Config.LibraryNameComplex, fixedPointTypes);
             var linalgTypes = GenerateLinearAlgebraTypes(Config.LibraryNameLinearAlgebra, fixedPointTypes);
 
-            // ProxyTypeTest.RewriteScalarTypeTest();
-
             Console.WriteLine();
             Console.WriteLine("All done!");
-        }
-
-        private static void TestStuff() {
-            /*
-                Turns out non-32-bit word integer operators return int
-                Look, this won't compile without casting the result to int:
-             */
-            // const short FractionMask = unchecked((short)0b0000_0000_0000_0000);
-            // const short IntegerMask = ~FractionMask;
-            // short v = 10;
-            // short result = (short)((v & FractionMask) | IntegerMask);
-
-            const int FractionMask = unchecked((ushort)0b0000_1111_1111_1111);
-            // const ushort IntegerMask = unchecked(~FractionMask); // Doesn't work, yields -2048
-            // const ushort IntegerMask = unchecked((ushort)0b1111_0000_0000_0000);
-            const int IntegerMask = unchecked(~(ushort)0b0000_1111_1111_1111);
-            Console.WriteLine(FractionMask);
-            Console.WriteLine(Utils.ToBitString(FractionMask));
-            Console.WriteLine(IntegerMask);
-            Console.WriteLine(Utils.ToBitString(IntegerMask));
         }
 
         private static List<(FixedPointType type, SyntaxTree tree)> GenerateFixedPointTypes(string libName) {
@@ -156,6 +156,19 @@ namespace CodeGeneration {
             // Generate unsigned 16-bit fixed point types
             // Todo: q0_WordSize, is it included?
             word = new WordType(WordSize.B16, WordSign.Unsigned);
+            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
+                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
+            }
+
+            // Generate signed 8-bit fixed point types
+            word = new WordType(WordSize.B8, WordSign.Signed);
+            for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
+                types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
+            }
+
+            // Generate unsigned 8-bit fixed point types
+            // Todo: q0_WordSize, is it included?
+            word = new WordType(WordSize.B8, WordSign.Unsigned);
             for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
                 types.Add(FixedPointTypeGenerator.GenerateType(word, fractionalBits));
             }
@@ -237,14 +250,6 @@ namespace CodeGeneration {
 
             Console.WriteLine("Compiling library: " + libName + ".dll ...");
 
-            // Ensure directory structure
-            if (!Directory.Exists(Config.OutputPathLib)) {
-                Directory.CreateDirectory(Config.OutputPathLib);
-            }
-            if (!Directory.Exists(Config.OutputPathSource)) {
-                Directory.CreateDirectory(Config.OutputPathSource);
-            }
-            
             var compilation = CSharpCompilation.Create(
                 $@"{libName}Compilation",
                 types,
@@ -283,10 +288,15 @@ namespace CodeGeneration {
             // Optionally also write out each generated type as C# code text files
             // useful for debugging
             if (Config.EmitSourceCode) {
+                string outputPathSource = Path.Join(Config.OutputPathSource, libName);
+                if (!Directory.Exists(outputPathSource)) {
+                    Directory.CreateDirectory(outputPathSource);
+                }
+
                 foreach (var type in types) {
                     var code = type.GetCompilationUnitRoot().NormalizeWhitespace().ToFullString();
                     var typeName = type.GetRoot().DescendantNodes().OfType<StructDeclarationSyntax>().First().Identifier;
-                    var textWriter = File.CreateText(Path.Join(Config.OutputPathSource, typeName + ".cs"));
+                    var textWriter = File.CreateText(Path.Join(outputPathSource, typeName + ".cs"));
                     textWriter.Write(code);
                     textWriter.Close();
                 }
