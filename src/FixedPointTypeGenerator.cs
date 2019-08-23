@@ -170,6 +170,21 @@ namespace CodeGeneration {
             string fractionalBitMask =  GenerateFractionalMaskLiteral(wordDef, fractionalBits);
             string integerBitMask =     GenerateFractionalMaskLiteral(wordDef, fractionalBits, "1", "0");
 
+            /*
+            Calculate minimum and maximum values in fractional representation
+            Note: integerBits already has 1 less in case of sign bit, see above.
+             */
+            double rangeMinDouble = 0f;
+            double rangeMaxDouble = 0f;
+            double epsilonDouble = epsilonDouble = 1.0 / Math.Pow(2, fractionalBits);
+            if (signBit == 0) {
+                rangeMinDouble = 0f;
+                rangeMaxDouble = Math.Pow(2, integerBits) - Math.Pow(2, -integerBits);
+            } else {
+                rangeMinDouble = -Math.Pow(2, integerBits);
+                rangeMaxDouble = Math.Pow(2, integerBits) - Math.Pow(2, -integerBits);
+            }
+
             var usingStrings = new List<string> {
                 "System", 
                 "System.Runtime.CompilerServices",
@@ -191,6 +206,13 @@ namespace CodeGeneration {
 
             // Constants
 
+            var rangeMinRational = SF.ParseMemberDeclaration(
+                $@"public const double RangeMinRational = {rangeMinDouble};");
+            var rangeMaxRational = SF.ParseMemberDeclaration(
+                $@"public const double RangeMaxRational = {rangeMaxDouble};");
+            var epsilonRational = SF.ParseMemberDeclaration(
+                $@"public const double EpsilonRational = {epsilonDouble};");
+
             var scale = SF.ParseMemberDeclaration(
                 $@"public const {signedWordType} Scale = {fractionalBits};");
             var halfScale = SF.ParseMemberDeclaration(
@@ -203,7 +225,6 @@ namespace CodeGeneration {
 
             var zero = SF.ParseMemberDeclaration(
                 $@"public static readonly {typeName} Zero = new {typeName}(0);");
-
             var one = SF.ParseMemberDeclaration(
                 $@"public static readonly {typeName} One = FromInt(1);");
 
@@ -213,6 +234,9 @@ namespace CodeGeneration {
                 $@"private const {doubleWordType} HalfEpsilon = ({doubleWordType})(Scale > 0 ? (({wordType})1 << (Scale-1)) : (0));");
 
             type = type.AddMembers(
+                rangeMinRational,
+                rangeMaxRational,
+                epsilonRational,
                 scale,
                 halfScale,
                 fractionMask,

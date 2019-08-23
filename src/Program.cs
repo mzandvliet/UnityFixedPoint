@@ -102,12 +102,15 @@ namespace CodeGeneration {
         }
 
         private static void TestStuff() {
-            // ({wordType})((({doubleWordCast}lhs.v << Scale) / rhs.v))
+            Console.WriteLine(-Math.Pow(2, 7));
+            Console.WriteLine(Math.Pow(2, 7) - Math.Pow(2, -8));
+            
 
-            byte four = (byte)(4 << 4);
-            byte eight = (byte)(8 << 4);
-            byte result = (byte)(((ushort)four << 4) / eight);
-            Console.WriteLine(result / (double)(1 << 4));
+            // ({wordType})((({doubleWordCast}lhs.v << Scale) / rhs.v))
+            // byte four = (byte)(4 << 4);
+            // byte eight = (byte)(8 << 4);
+            // byte result = (byte)(((ushort)four << 4) / eight);
+            // Console.WriteLine(result / (double)(1 << 4));
         }
 
         private static void GenerateLibraries() {
