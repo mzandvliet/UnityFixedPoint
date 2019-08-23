@@ -77,36 +77,6 @@ namespace CodeGeneration {
     }
 
     public class FixedPointType {
-        public readonly string name;
-        public readonly WordType word;
-        public readonly int fractionalBits;
-        public int integerBits {
-            get => (int)word.Size - signBit - fractionalBits;
-        }
-        public int signBit {
-            get => (word.Sign == WordSign.Signed ? 1 : 0);
-        }
-        public int wordLength {
-            get => (int)word.Size;
-        }
-
-        public FixedPointType(WordType word, int fractionalBits) {
-            this.word = word;
-            this.fractionalBits = fractionalBits;
-
-            if (integerBits + fractionalBits != wordLength - signBit) {
-                throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - signBit));
-            }
-
-            this.name = string.Format("q{0}{1}_{2}", signBit == 1 ? "s" : "u", integerBits, fractionalBits);
-        }
-    }
-
-    public static class FixedPointTypeGenerator {
-        public class Options {
-            public bool AddRangeChecks = true;
-        }
-
         public static readonly Dictionary<WordType, string> DotNetWordTypes = new Dictionary<WordType, string> {
             { new WordType(WordSize.B8 , WordSign.Unsigned),    "byte" },
             { new WordType(WordSize.B16, WordSign.Unsigned),    "ushort" },
@@ -117,6 +87,60 @@ namespace CodeGeneration {
             { new WordType(WordSize.B32, WordSign.Signed),      "int" },
             { new WordType(WordSize.B64, WordSign.Signed),      "long" },
         };
+
+        public readonly string name;
+
+        public readonly WordType word;
+        public readonly WordType doubleWord;
+        public readonly WordType signedWord;
+
+        public readonly string wordType;
+        public readonly string doubleWordType;
+        public readonly string signedWordType;
+
+        public readonly int fractionalBits;
+
+        public int integerBits {
+            get => (int)word.Size - signBit - fractionalBits;
+        }
+        public int signBit {
+            get => (word.Sign == WordSign.Signed ? 1 : 0);
+        }
+        public int wordLength {
+            get => (int)word.Size;
+        }
+        public int doubleWordLength {
+            get => (int)word.Size;
+        }
+
+
+        public FixedPointType(WordType word, int fractionalBits) {
+            this.word = word;
+            this.fractionalBits = fractionalBits;
+
+            if (integerBits + fractionalBits != wordLength - signBit) {
+                throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - signBit));
+            }
+
+            doubleWord = new WordType((WordSize)(wordLength * 2), word.Sign);
+            signedWord = new WordType(word.Size, WordSign.Signed);
+
+            wordType =          DotNetWordTypes[word]; 
+            doubleWordType =    DotNetWordTypes[doubleWord];
+            signedWordType =    DotNetWordTypes[signedWord];
+
+            this.name = GetTypeName(integerBits, fractionalBits, signBit);
+        }
+
+        public static string GetTypeName(int integerBits, int fractionalBits, int signBit) {
+            return string.Format("q{0}{1}_{2}", signBit == 1 ? "s" : "u", integerBits, fractionalBits);
+        }
+    }
+
+    public static class FixedPointTypeGenerator {
+        public class Options {
+            public bool AddRangeChecks = true;
+        }
 
         private static string GenerateSignBitMaskLiteral(in FixedPointType fType) {
             var maskBuilder = new StringBuilder();
@@ -174,14 +198,36 @@ namespace CodeGeneration {
                 }}";
         }
 
-        private static MemberDeclarationSyntax GenerateAdder(FixedPointType fType, string wordCastOpt) {
+        private static MemberDeclarationSyntax GenerateAdder(FixedPointType lhType, FixedPointType rhType) {
+            /*
+                Todo:
+                - decide whether return type is lhType or rhType
+                - shift one to meet the other before adding
+             */
+            int shift = rhType.fractionalBits - lhType.fractionalBits;
             var opAdd = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {fType.name} operator +({fType.name} lhs, {fType.name} rhs) {{
-                    return new {fType.name}({wordCastOpt}(lhs.v + rhs.v));
+                public static {lhType.name} operator +({lhType.name} lhs, {rhType.name} rhs) {{
+                    return new {lhType.name}(({lhType.wordType})(lhs.v + rhs.v));
                 }}");
 
             return opAdd;
+        }
+
+        private static MemberDeclarationSyntax GenerateMultiplier(FixedPointType lhType, FixedPointType rhType) {
+            /*
+                Todo:
+             */
+            var opMul = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {lhType.name} operator *({lhType.name} lhs, {rhType.name} rhs) {{
+                    {lhType.doubleWordType} lhsLong = lhs.v;
+                    {lhType.doubleWordType} rhsLong = rhs.v;
+                    {lhType.doubleWordType} result = ({lhType.doubleWordType})((lhsLong * rhsLong) + HalfEpsilon);
+                    return new {lhType.name}(({lhType.wordType})(result >> Scale));
+                }}");
+
+            return opMul;
         }
 
         /*
@@ -189,14 +235,6 @@ namespace CodeGeneration {
             - Find out the difference between .WithX and .AddX
          */
         public static (FixedPointType, SyntaxTree) GenerateType(in FixedPointType fType, in Options options) {
-            string wordType = DotNetWordTypes[fType.word];
-            
-            var doubleWordDef = new WordType((WordSize)(fType.wordLength * 2), fType.word.Sign);
-            string doubleWordType = DotNetWordTypes[doubleWordDef];
-            int doubleWordLength = (int)doubleWordDef.Size;
-            var signedWordDef = new WordType(fType.word.Size, WordSign.Signed);
-            string signedWordType = DotNetWordTypes[signedWordDef];
-
             string fractionalBitMask =  GenerateFractionalMaskLiteral(fType);
             string integerBitMask =     GenerateFractionalMaskLiteral(fType, "1", "0");
 
@@ -258,14 +296,14 @@ namespace CodeGeneration {
                 $@"public const double EpsilonDouble = {epsilonDoubleValue}d;");
 
             var scale = SF.ParseMemberDeclaration(
-                $@"public const {signedWordType} Scale = {fType.fractionalBits};");
+                $@"public const {fType.signedWordType} Scale = {fType.fractionalBits};");
             var halfScale = SF.ParseMemberDeclaration(
-                $@"private const {signedWordType} HalfScale = Scale >> 1;");
+                $@"private const {fType.signedWordType} HalfScale = Scale >> 1;");
             
             var fractionMask = SF.ParseMemberDeclaration(
-                $@"private const {wordType} FractionMask = unchecked(({wordType}){fractionalBitMask});");
+                $@"private const {fType.wordType} FractionMask = unchecked(({fType.wordType}){fractionalBitMask});");
             var integerMask = SF.ParseMemberDeclaration(
-                $@"private const {wordType} IntegerMask = unchecked(({wordType}){integerBitMask});");
+                $@"private const {fType.wordType} IntegerMask = unchecked(({fType.wordType}){integerBitMask});");
 
             var zero = SF.ParseMemberDeclaration(
                 $@"public static readonly {fType.name} Zero = new {fType.name}(0);");
@@ -275,7 +313,8 @@ namespace CodeGeneration {
             var epsilon = SF.ParseMemberDeclaration(
                 $@"public static readonly {fType.name} Epsilon = new {fType.name}(1);");
             var halfEpsilon = SF.ParseMemberDeclaration(
-                $@"private const {doubleWordType} HalfEpsilon = ({doubleWordType})(Scale > 0 ? (({wordType})1 << (Scale-1)) : (0));");
+                $@"private const {fType.doubleWordType} HalfEpsilon = 
+                    ({fType.doubleWordType})(Scale > 0 ? (({fType.wordType})1 << (Scale-1)) : (0));");
 
             type = type.AddMembers(
                 rangeMinInt,
@@ -299,15 +338,15 @@ namespace CodeGeneration {
                 string signBitMask = GenerateSignBitMaskLiteral(fType);
 
                 var signMask = SF.ParseMemberDeclaration(
-                    $@"private const {wordType} SignMask = unchecked(({wordType}){signBitMask});");
-                    
+                    $@"private const {fType.wordType} SignMask = unchecked(({fType.wordType}){signBitMask});");
+
                 type = type.AddMembers(signMask);
             }
 
             // Value field, in which number is stored
 
             var rawValue = SF.ParseMemberDeclaration(
-                $@"[FieldOffset(0)] public {wordType} v;");
+                $@"[FieldOffset(0)] public {fType.wordType} v;");
             
             type = type.AddMembers(rawValue);
 
@@ -315,7 +354,7 @@ namespace CodeGeneration {
 
             var constructor = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public {fType.name}({wordType} x) {{
+                public {fType.name}({fType.wordType} x) {{
                     v = x;
                 }}");
 
@@ -333,14 +372,14 @@ namespace CodeGeneration {
             /* Optional cast-to-wordType instruction needed for code
             that performs arithmetic with small types, with in C#
             always return int for some reason. */
-            string wordCast = $@"({wordType})";
+            string wordCast = $@"({fType.wordType})";
             string wordCastOpt = fType.wordLength < 32 ? wordCast : "";
 
             /* Optional cast-to-wordType instruction needed for code
             that performs arithmetic with small types, with in C#
             always return int for some reason. */
-            string doubleWordCast = $@"({doubleWordType})";
-            string doubleWordCastOpt = doubleWordLength < 32 ? doubleWordCast : "";
+            string doubleWordCast = $@"({fType.doubleWordType})";
+            string doubleWordCastOpt = fType.doubleWordLength < 32 ? doubleWordCast : "";
 
             /*
             Type conversions
@@ -362,7 +401,7 @@ namespace CodeGeneration {
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} FromInt(int x) {{
                     {intRangeCheckOpt}
-                    return new {fType.name}(({wordType})(x << Scale));
+                    return new {fType.name}(({fType.wordType})(x << Scale));
                 }}");
 
             var toInt = SF.ParseMemberDeclaration($@"
@@ -384,7 +423,7 @@ namespace CodeGeneration {
                 public static {fType.name} FromFloat(float x) {{
                     {floatRangeCheckOpt}
                     return new {fType.name}(
-                        ({wordType})math.round((x * (float)(1 << Scale)))
+                        ({fType.wordType})math.round((x * (float)(1 << Scale)))
                     );
                 }}");
 
@@ -407,7 +446,7 @@ namespace CodeGeneration {
                 public static {fType.name} FromDouble(double x) {{
                     {doubleRangeCheckOpt}
                     return new {fType.name}(
-                        ({wordType})math.round((x * (double)(1 << Scale)))
+                        ({fType.wordType})math.round((x * (double)(1 << Scale)))
                     );
                 }}");
 
@@ -440,7 +479,7 @@ namespace CodeGeneration {
             if (fType.signBit == 1) {
                 // Code path for signed types, in case sign bit is set
                 fractNegativePath = $@"
-                if ((f.v & SignMask) != ({wordType})0) {{
+                if ((f.v & SignMask) != ({fType.wordType})0) {{
                     return new {fType.name}({wordCastOpt}((f.v & FractionMask) | IntegerMask));
                 }}";
             }
@@ -517,9 +556,9 @@ namespace CodeGeneration {
             var opMul = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator *({fType.name} lhs, {fType.name} rhs) {{
-                    {doubleWordType} lhsLong = lhs.v;
-                    {doubleWordType} rhsLong = rhs.v;
-                    {doubleWordType} result = {doubleWordCastOpt}((lhsLong * rhsLong) + HalfEpsilon);
+                    {fType.doubleWordType} lhsLong = lhs.v;
+                    {fType.doubleWordType} rhsLong = rhs.v;
+                    {fType.doubleWordType} result = {doubleWordCastOpt}((lhsLong * rhsLong) + HalfEpsilon);
                     return new {fType.name}({wordCast}(result >> Scale));
                 }}");
 
@@ -540,7 +579,7 @@ namespace CodeGeneration {
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator /({fType.name} lhs, {fType.name} rhs) {{
                     return new {fType.name}(
-                        ({wordType})((({doubleWordCast}lhs.v << Scale) / rhs.v))
+                        ({fType.wordType})((({doubleWordCast}lhs.v << Scale) / rhs.v))
                     );
                 }}");
 
