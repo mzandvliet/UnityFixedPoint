@@ -214,17 +214,25 @@ namespace CodeGeneration {
             return opAdd;
         }
 
+        /*
+        Generates a multiplier that returns the type of the left-hand-side argument.
+         */
         private static MemberDeclarationSyntax GenerateMultiplier(FixedPointType lhType, FixedPointType rhType) {
-            /*
-                Todo:
-             */
+            // int postMulIntegerBits = lhType.integerBits + rhType.integerBits;
+            // int postMulFractionalBits = lhType.fractionalBits + rhType.fractionalBits;
+            int halfEpsilonShiftBits = rhType.fractionalBits - 1;
+            string halfEpsilon = $@"const {lhType.doubleWordType} halfEpsilon = 
+                    ({lhType.doubleWordType})(({lhType.wordType})1 << {halfEpsilonShiftBits});";
+
             var opMul = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {lhType.name} operator *({lhType.name} lhs, {rhType.name} rhs) {{
+                    {halfEpsilon}
+
                     {lhType.doubleWordType} lhsLong = lhs.v;
-                    {lhType.doubleWordType} rhsLong = rhs.v;
-                    {lhType.doubleWordType} result = ({lhType.doubleWordType})((lhsLong * rhsLong) + HalfEpsilon);
-                    return new {lhType.name}(({lhType.wordType})(result >> Scale));
+                    {lhType.doubleWordType} rhsLong = ({lhType.doubleWordType})rhs.v;
+                    {lhType.doubleWordType} result = ({lhType.doubleWordType})((lhsLong * rhsLong) + halfEpsilon);
+                    return new {lhType.name}(({lhType.wordType})(result >> {rhType.fractionalBits}));
                 }}");
 
             return opMul;
@@ -562,6 +570,12 @@ namespace CodeGeneration {
                     return new {fType.name}({wordCast}(result >> Scale));
                 }}");
 
+            var rhType = new FixedPointType(new WordType(WordSize.B16, WordSign.Unsigned), 8);
+            if (rhType.name != fType.name) {
+                var opMulMixed = GenerateMultiplier(fType, rhType);
+                type = type.AddMembers(opMulMixed);
+            }
+
             /*
             Division
 
@@ -590,6 +604,8 @@ namespace CodeGeneration {
                 opDecr,
                 opMul,
                 opDiv);
+
+            
 
             /* Equality */
 
