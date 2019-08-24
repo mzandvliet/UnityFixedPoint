@@ -55,6 +55,11 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
     Trying this in ProxyTypeTest.cs. Could work, but has some serious downsides.
 
+    === Code Stripping ===
+
+    Conversely, we can generate all variants but then strip all the unused ones
+    after a Unity build.
+
     === Literals ===
 
     If we're going with edgy, juicy manipulations that border on altering the
