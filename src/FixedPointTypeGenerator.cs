@@ -220,7 +220,27 @@ namespace CodeGeneration {
         private static MemberDeclarationSyntax GenerateMultiplier(FixedPointType lhType, FixedPointType rhType) {
             // int postMulIntegerBits = lhType.integerBits + rhType.integerBits;
             // int postMulFractionalBits = lhType.fractionalBits + rhType.fractionalBits;
-            int halfEpsilonShiftBits = rhType.fractionalBits - 1;
+
+            /*
+                Todo: This current setup only works for cases where
+                lhType.fractionalBits >= rhType.fractionalBits
+
+                Does it even make sens to support cases there that
+                condition isn't met?
+
+                Oh! Of course, we'll still get a working variant of this,
+                where the lhs and rhs are switched. So instead of getting
+                a full matrix we get a diagonal matrix.
+
+                Fine with me, forces you to consider precision.
+             */
+
+            /*
+            Todo:
+            consider case where rhType.fractionalBits == 0, such that
+            halfEpsilonShiftBits becomes 1 << -1, which doesn't make sense.
+             */
+            int halfEpsilonShiftBits = Math.Max(0, rhType.fractionalBits - 1);
             string halfEpsilon = $@"const {lhType.doubleWordType} halfEpsilon = 
                     ({lhType.doubleWordType})(({lhType.wordType})1 << {halfEpsilonShiftBits});";
 
@@ -242,7 +262,7 @@ namespace CodeGeneration {
             Todo:
             - Find out the difference between .WithX and .AddX
          */
-        public static (FixedPointType, SyntaxTree) GenerateType(in FixedPointType fType, in Options options) {
+        public static (FixedPointType, SyntaxTree) GenerateType(in FixedPointType fType, in List<FixedPointType> fTypes, in Options options) {
             string fractionalBitMask =  GenerateFractionalMaskLiteral(fType);
             string integerBitMask =     GenerateFractionalMaskLiteral(fType, "1", "0");
 
@@ -560,8 +580,10 @@ namespace CodeGeneration {
             I chose HalfScale here, but you could >> 4 the inputs, with a final shift at the end
 
             return new {fType.name}((lhs.v>>HalfScale) * (rhs.v>>HalfScale)); // >> 0
-             */
-            var opMul = SF.ParseMemberDeclaration($@"
+            */
+
+            // Mul with self
+            var opMulSelf = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator *({fType.name} lhs, {fType.name} rhs) {{
                     {fType.doubleWordType} lhsLong = lhs.v;
@@ -570,10 +592,14 @@ namespace CodeGeneration {
                     return new {fType.name}({wordCast}(result >> Scale));
                 }}");
 
-            var rhType = new FixedPointType(new WordType(WordSize.B16, WordSign.Unsigned), 8);
-            if (rhType.name != fType.name) {
-                var opMulMixed = GenerateMultiplier(fType, rhType);
-                type = type.AddMembers(opMulMixed);
+            // Mul with all other fTypes
+            for (int i = 0; i < fTypes.Count; i++) {
+                // var rhType = new FixedPointType(new WordType(WordSize.B16, WordSign.Unsigned), 8);
+                var rhType = fTypes[i];
+                if (rhType.name != fType.name && fType.fractionalBits >= rhType.fractionalBits) {
+                    var opMulMixed = GenerateMultiplier(fType, rhType);
+                    type = type.AddMembers(opMulMixed);
+                }
             }
 
             /*
@@ -602,7 +628,7 @@ namespace CodeGeneration {
                 opIncr,
                 opSub,
                 opDecr,
-                opMul,
+                opMulSelf,
                 opDiv);
 
             

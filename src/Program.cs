@@ -136,34 +136,41 @@ namespace CodeGeneration {
         private static List<(FixedPointType type, SyntaxTree tree)> GenerateFixedPointTypes(string libName) {
             Console.WriteLine("Generating FixedPoint types...");
 
-            var types = new List<(FixedPointType type, SyntaxTree tree)>();
-
             var options = new FixedPointTypeGenerator.Options {
                 AddRangeChecks = true,
             };
 
+            var fTypes = new List<FixedPointType>();
+
             // Loop over given type, generate all variants
-            void Generate(WordType word) {
+            void GenerateFTypes(WordType word) {
                 for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
                     var fType = new FixedPointType(
                         word,
                         fractionalBits
                     );
-                    types.Add(FixedPointTypeGenerator.GenerateType(fType, options));
+                    fTypes.Add(fType);
                 }
             }
 
             // Generate 32-bit fixed point types
-            Generate(new WordType(WordSize.B32, WordSign.Signed));
-            Generate(new WordType(WordSize.B32, WordSign.Unsigned));
+            GenerateFTypes(new WordType(WordSize.B32, WordSign.Signed));
+            GenerateFTypes(new WordType(WordSize.B32, WordSign.Unsigned));
 
             // Generate 16-bit fixed point types
-            Generate(new WordType(WordSize.B16, WordSign.Signed));
-            Generate(new WordType(WordSize.B16, WordSign.Unsigned)); // Todo: q0_WordSize, is it included?
+            GenerateFTypes(new WordType(WordSize.B16, WordSign.Signed));
+            GenerateFTypes(new WordType(WordSize.B16, WordSign.Unsigned)); // Todo: q0_WordSize, is it included?
 
             // Generate 8-bit fixed point types
-            Generate(new WordType(WordSize.B8, WordSign.Signed));
-            Generate(new WordType(WordSize.B8, WordSign.Unsigned)); // Todo: q0_WordSize, is it included?
+            GenerateFTypes(new WordType(WordSize.B8, WordSign.Signed));
+            GenerateFTypes(new WordType(WordSize.B8, WordSign.Unsigned)); // Todo: q0_WordSize, is it included?
+
+            var types = new List<(FixedPointType type, SyntaxTree tree)>();
+
+            foreach (var fType in fTypes) {
+                types.Add(FixedPointTypeGenerator.GenerateType(fType, fTypes, options));
+            }
+            
 
             // Compile types into library, including needed references
             var references = ReferenceLoader.LoadUnityReferences();
