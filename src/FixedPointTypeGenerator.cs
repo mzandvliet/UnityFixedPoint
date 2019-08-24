@@ -188,6 +188,12 @@ namespace CodeGeneration {
         }
 
         private static string GenerateRangeCheck(FixedPointType fType, string variableName, SyntaxToken minName, SyntaxToken maxName) {
+            /*
+            Todo: might be better to make this a preprocessor thing, using
+            #if ENABLE_FIXED_POINT_RANGE_CHECKS
+            ...
+            #endif
+             */
             return $@"
                 if ({variableName} < {minName} || {variableName} > {maxName}) {{
                     throw new System.ArgumentException(string.Format(

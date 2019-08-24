@@ -9,15 +9,14 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 /*
     Todo:
-    - Calculate min/max ranges
-    - When creating new FixedPoint, check whether given value lies within representable
-    range.
+    - Does Burst vectorize these types?
+        - Before that: right now burst actually fails to compile Fixed code
+        because it cannot resolve the LinearAlgebra library.
     - Optional overflow handling
     - Rounding / Jittering
         - This does not trivially extend to higher linear algebra types
 
     - Generate some other things:
-        - Complex numbers
         - Linear Algebra
         - Geometric Algebra
         - Bezier curves
@@ -78,6 +77,21 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
     sizeof(q24_7) // This doesn't compile without unsafe. Compiler cannot infer
     const size from members...
+
+    === Burst Vectorization ??? ===
+
+    In Unity.Mathematics sourcecode readme, it says:
+
+    "In addition to this, the Burst compiler is able to recognize these types and provide
+    the optimized SIMD type for the running CPU on all supported platforms (x64, ARMv7a...etc.)"
+
+    Does that mean Burst only looks for literal instances of their math types
+    and do a specific replace with each? If so, and that is the only way
+    to get it to vectorize anything, none of my fixed point code will
+    vectorize at all....
+
+    If it doesn't I'll be rather disappointed, and perhaps be moved to say:
+    sod it, I'm taking all this into Rust and not looking back.
 
     ------
 
@@ -226,6 +240,11 @@ namespace CodeGeneration {
             // Vector_3d
             for (int i = 0; i < fpTypes.Count; i++) {
                 types.Add(VectorTypeGenerator.GenerateType(fpTypes[i].type, 3));
+            }
+
+            // Vector_4d
+            for (int i = 0; i < fpTypes.Count; i++) {
+                types.Add(VectorTypeGenerator.GenerateType(fpTypes[i].type, 4));
             }
 
             // Compile types into library, including needed references
