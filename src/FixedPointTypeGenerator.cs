@@ -226,13 +226,13 @@ namespace CodeGeneration {
 
             string wordCastOpt = lhType.word.Size == WordSize.B32 ? "" : $@"({lhType.wordType})";
 
-            var opAdd = SF.ParseMemberDeclaration($@"
+            var op = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {lhType.name} operator +({lhType.name} lhs, {rhType.name} rhs) {{
                     return new {lhType.name}({wordCastOpt}(lhs.v + ({lhType.wordType})(rhs.v {shiftOp} {shiftAmount})));
                 }}");
 
-            return opAdd;
+            return op;
         }
 
         private static MemberDeclarationSyntax GenerateSubber(FixedPointType lhType, FixedPointType rhType) {
@@ -242,13 +242,13 @@ namespace CodeGeneration {
 
             string wordCastOpt = lhType.word.Size == WordSize.B32 ? "" : $@"({lhType.wordType})";
 
-            var opAdd = SF.ParseMemberDeclaration($@"
+            var op = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {lhType.name} operator -({lhType.name} lhs, {rhType.name} rhs) {{
                     return new {lhType.name}({wordCastOpt}(lhs.v - ({lhType.wordType})(rhs.v {shiftOp} {shiftAmount})));
                 }}");
 
-            return opAdd;
+            return op;
         }
 
         /*
@@ -275,7 +275,7 @@ namespace CodeGeneration {
             string halfEpsilon = $@"const {lhType.doubleWordType} halfEpsilon = 
                     ({lhType.doubleWordType})(({lhType.wordType})1 << {halfEpsilonShiftBits});";
 
-            var opMul = SF.ParseMemberDeclaration($@"
+            var op = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {lhType.name} operator *({lhType.name} lhs, {rhType.name} rhs) {{
                     {halfEpsilon}
@@ -286,8 +286,41 @@ namespace CodeGeneration {
                     return new {lhType.name}(({lhType.wordType})(result >> {rhType.fractionalBits}));
                 }}");
 
-            return opMul;
+            return op;
         }
+
+        private static MemberDeclarationSyntax GenerateDivisor(FixedPointType lhType, FixedPointType rhType) {
+            /*
+            Todo: Not performing any rounding with halfEpsilon tricks here yet,
+            need to work out what the right thing is to do.
+
+            Also, we have halfEpsilon as an int here, when 32-bits or less.
+            This is because it is applied immediately after a shift, which returns Int32
+            in those cases
+            */
+
+            // string halfEpsilonType = lhType.wordLength <= 32 ? "int" : $@"{lhType.doubleWordType}";
+            // int halfEpsilonShiftBits = Math.Max(0, rhType.fractionalBits - 1);
+            // string halfEpsilon = $@"const {halfEpsilonType} halfEpsilon = (1 << {halfEpsilonShiftBits});";
+
+            var op = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {lhType.name} operator /({lhType.name} lhs, {rhType.name} rhs) {{
+                    {lhType.doubleWordType} lhsLong = ({lhType.doubleWordType})(lhs.v << {rhType.fractionalBits});
+                    {lhType.doubleWordType} rhsLong = ({lhType.doubleWordType})rhs.v;
+                    return new {lhType.name}(({lhType.wordType})(lhsLong / rhsLong));
+                }}");
+
+            return op;
+        }
+
+        // var opDivSelf = SF.ParseMemberDeclaration($@"
+        //         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        //         public static {fType.name} operator /({fType.name} lhs, {fType.name} rhs) {{
+        //             return new {fType.name}(
+        //                 ({fType.wordType})((({doubleWordCast}lhs.v << Scale) / rhs.v))
+        //             );
+        //         }}");
 
         /*
             Todo:
@@ -571,7 +604,7 @@ namespace CodeGeneration {
             
             Note: we construct the result by new struct(), which is quite slow.
 
-            Todo: Generate variants for all supported mixed-type operations
+            Todo: Simplify the code for generating all mixed-type variants
             */
 
             var opAdd = SF.ParseMemberDeclaration($@"
@@ -598,24 +631,6 @@ namespace CodeGeneration {
                     return new {fType.name}({wordCastOpt}(lhs.v - 1));
                 }}");
 
-            // Add with all other fTypes
-            for (int i = 0; i < fTypes.Count; i++) {
-                var rhType = fTypes[i];
-                if (rhType.name != fType.name && fType.integerBits >= rhType.integerBits) {
-                    var op = GenerateAdder(fType, rhType);
-                    type = type.AddMembers(op);
-                }
-            }
-
-            // Sub with all other fTypes
-            for (int i = 0; i < fTypes.Count; i++) {
-                var rhType = fTypes[i];
-                if (rhType.name != fType.name && fType.integerBits >= rhType.integerBits) {
-                    var op = GenerateSubber(fType, rhType);
-                    type = type.AddMembers(op);
-                }
-            }
-
             /*
             Multiplication
 
@@ -640,16 +655,6 @@ namespace CodeGeneration {
                     {fType.doubleWordType} result = {doubleWordCastOpt}((lhsLong * rhsLong) + HalfEpsilon);
                     return new {fType.name}({wordCast}(result >> Scale));
                 }}");
-
-            // Mul with all other fTypes
-            for (int i = 0; i < fTypes.Count; i++) {
-                // var rhType = new FixedPointType(new WordType(WordSize.B16, WordSign.Unsigned), 8);
-                var rhType = fTypes[i];
-                if (rhType.name != fType.name && fType.fractionalBits >= rhType.fractionalBits) {
-                    var op = GenerateMultiplier(fType, rhType);
-                    type = type.AddMembers(op);
-                }
-            }
 
             /*
             Division
@@ -680,7 +685,40 @@ namespace CodeGeneration {
                 opMulSelf,
                 opDivSelf);
 
-            
+            /*
+            Generate mixed-type operators
+
+            Todo:
+
+            Allow the types we're currently filtering out, work
+            out the different arithmetic needed to support them.
+            */
+
+            for (int i = 0; i < fTypes.Count; i++) {
+                
+                var rhType = fTypes[i];
+
+                // Add and Sub all other fTypes that have fewer integer bits
+
+                MemberDeclarationSyntax mixedOp;
+                if (rhType.name != fType.name && fType.integerBits >= rhType.integerBits) {
+                    mixedOp = GenerateAdder(fType, rhType);
+                    type = type.AddMembers(mixedOp);
+
+                    mixedOp = GenerateSubber(fType, rhType);
+                    type = type.AddMembers(mixedOp);
+                }
+
+                // Mul and Div ops
+
+                if (rhType.name != fType.name && fType.fractionalBits >= rhType.fractionalBits) {
+                    mixedOp = GenerateMultiplier(fType, rhType);
+                    type = type.AddMembers(mixedOp);
+
+                    mixedOp = GenerateDivisor(fType, rhType);
+                    type = type.AddMembers(mixedOp);
+                }
+            }
 
             /* Equality */
 

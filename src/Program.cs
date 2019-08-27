@@ -9,6 +9,9 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 /*
     Todo:
+    - automated testing
+    - halfEpsilon for fractionalBits = 0
+    - negative fractionalBits?
     - Does Burst vectorize these types?
         - Before that: right now burst actually fails to compile Fixed code
         because it cannot resolve the LinearAlgebra library.
@@ -42,6 +45,13 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     I wonder how big the library becomes, how much it'll slow things down, and just
     how polluted Intellisense will end up...
     
+    === Precision: Analysis and Design ===
+
+    Many operations are not commutative, precision-wise.
+
+    a * b might overflow, or loose vast amounts of fractional bits
+    b * a might be perfectly fine.
+
     === Proxy Types ===
 
     Idea: Generate generic proxy types! Some valid C#, such that it compiles, and we
@@ -97,6 +107,11 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
     https://stackoverflow.com/questions/8193601/sse-multiplication-16-x-uint8-t
 
+    Hypothesis: Burst might only be able to vectorize if the type across
+    the operations remains the same? Since in each op we have
+    up and down casting to different word lengths, that might
+    be where it trips up.
+
     === CIL Optimization ===
 
     Some CIL optimizations should be safe, like returning
@@ -135,12 +150,12 @@ namespace CodeGeneration {
         }
 
         private static void TestStuff() {
-            short a = (short)(112 << 7);
-            sbyte b = (sbyte)(1 << 4);
-            short bShort = (short)(b << 3);
+            // short a = (short)(112 << 7);
+            // sbyte b = (sbyte)(1 << 4);
+            // short bShort = (short)(b << 3);
 
-            short v = (short)((a + bShort) >> 7);
-            Console.WriteLine(v);
+            // short v = (short)((a + bShort) >> 7);
+            // Console.WriteLine(v);
         }
 
         private static void GenerateLibraries() {
