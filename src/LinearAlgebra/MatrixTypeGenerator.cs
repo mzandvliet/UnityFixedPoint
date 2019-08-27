@@ -9,11 +9,13 @@ using System.Text;
 using SF = Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 using SK = Microsoft.CodeAnalysis.CSharp.SyntaxKind;
 
+
 namespace CodeGeneration {
     public static class MatrixTypeGenerator {
-        public static (string, SyntaxTree) GenerateSigned32BitType(string scalarTypeName, params int[] shape) {
-            string shapeName = shape.Select((dimLength, dim) => $@"{dimLength}").Aggregate((a, b) => a + "x" + b);
-            string typeName = string.Format("mat{0}_{1}", shapeName, scalarTypeName);
+        public static (FixedPointType, SyntaxTree) GenerateType(FixedPointType fType, int dimsX, int dimsY) {
+            // string dimsName = shape.Select(a => a.ToString()).Aggregate((a, b) => a + "x" + b); // this would be for general tensors...
+            string dimsName = string.Format("{0}x{1}", dimsX, dimsY);
+            string typeName = string.Format("mat{0}_{1}", dimsName, fType.name);
 
             var usingStrings = new List<string> {
                 "System",
@@ -21,14 +23,14 @@ namespace CodeGeneration {
                 "System.Runtime.InteropServices",
                 "UnityEngine",
                 "Unity.Mathematics",
-                "Ramjet.Math.FixedPoint"
+                "Ramjet.Math.FixedPoint",
+                "Ramjet.Math.LinearAlgebra",
             };
 
             var usings = new SyntaxList<UsingDirectiveSyntax>(
                 from s in usingStrings select SF.UsingDirective(SF.ParseName(s)));
 
-            var unit = SF.CompilationUnit()
-                .WithUsings(usings);
+            var unit = SF.CompilationUnit().WithUsings(usings);
 
             var nameSpace = SF.NamespaceDeclaration(SF.ParseName("Ramjet.Math.LinearAlgebra"));
 
@@ -36,22 +38,192 @@ namespace CodeGeneration {
                 .AddModifiers(SF.Token(SK.PublicKeyword))
                 .WithAttributeLists(Utils.GenerateStructLayoutAttributes());
 
-            var constructorArgs = "";
-            var constructorAssignments = "";
+            var fields = new List<MemberDeclarationSyntax>();
 
-            var constructor = SF.ParseMemberDeclaration($@"
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public {typeName}({constructorArgs}) {{
-                    {constructorAssignments}
-                }}");
+            var rowTypeName = $@"vec{dimsX}_{fType.name}";
+            var rowTypeSizeBytes = (fType.wordLength * dimsX) / 8;
 
-            type = type.AddMembers(
-                constructor);
+            int fieldOffset = 0;
+            for (int i = 0; i < dimsY; i++) {
+                var row = SF.ParseMemberDeclaration($@"[FieldOffset({fieldOffset})] public {fType.name} c{i};");
+                fields.Add(row);
+                fieldOffset += rowTypeSizeBytes;
+            }
+
+            type = type.AddMembers(fields.ToArray());
+
+            // var zero = SF.ParseMemberDeclaration($@"public static readonly {typeName} Zero = {typeName}.FromInt(0);");
+
+            // var constructorArgs = fields.Select((coeff, index) => $@"{fType.name} {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
+            // var constructorAssignments = fields.Select((coeff, index) => $@"this.{CoefficientNames[index]} = {CoefficientNames[index]}").Aggregate((a, b) => a + ";\n" + b) + ";";
+
+            // var constructor = SF.ParseMemberDeclaration($@"
+            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public {typeName}({constructorArgs}) {{
+            //         {constructorAssignments}
+            //     }}");
+
+            // type = type.AddMembers(
+            //     constructor);
+
+            // var fromIntArgs = fields.Select((coeff, index) => $@"int {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
+            // var fromIntAssignments = fields.Select((coeff, index) => $@"{fType.name}.FromInt({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
+            // var fromInt = SF.ParseMemberDeclaration($@"
+            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public static {typeName} FromInt({fromIntArgs}) {{
+            //         return new {typeName}(
+            //             {fromIntAssignments}
+            //         );
+            //     }}");
+
+            // var fromFloatArgs = fields.Select((coeff, index) => $@"float {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
+            // var fromFloatAssignments = fields.Select((coeff, index) => $@"{fType.name}.FromFloat({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
+            // var fromFloat = SF.ParseMemberDeclaration($@"
+            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public static {typeName} FromFloat({fromFloatArgs}) {{
+            //         return new {typeName}(
+            //             {fromFloatAssignments}
+            //         );
+            //     }}");
+
+            // var fromDoubleArgs = fields.Select((coeff, index) => $@"double {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
+            // var fromDoubleAssignments = fields.Select((coeff, index) => $@"{fType.name}.FromDouble({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
+            // var fromDouble = SF.ParseMemberDeclaration($@"
+            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public static {typeName} FromFloat({fromDoubleArgs}) {{
+            //         return new {typeName}(
+            //             {fromDoubleAssignments}
+            //         );
+            //     }}");
+
+            // type = type.AddMembers(
+            //     fromInt,
+            //     fromFloat,
+            //     fromDouble
+            // );
+
+            // var opAddInstructions = fields.Select((coeff, index) => $@"lhs.{CoefficientNames[index]} + rhs.{CoefficientNames[index]}")
+            //     .Aggregate((a, b) => a + ", \n" + b);
+            // var opAdd = SF.ParseMemberDeclaration($@"
+            //    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public static {typeName} operator +({typeName} lhs, {typeName} rhs) {{
+            //         return new {typeName}(
+            //             {opAddInstructions}
+            //         );
+            //     }}");
+
+            // var opSubInstructions = fields.Select((coeff, index) => $@"lhs.{CoefficientNames[index]} - rhs.{CoefficientNames[index]}")
+            //     .Aggregate((a, b) => a + ", \n" + b);
+            // var opSub = SF.ParseMemberDeclaration($@"
+            //    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public static {typeName} operator -({typeName} lhs, {typeName} rhs) {{
+            //         return new {typeName}(
+            //             {opSubInstructions}
+            //         );
+            //     }}");
+
+            // var opMulScalarRightInstructions = fields.Select((coeff, index) => $@"lhs.{CoefficientNames[index]} * rhs")
+            //     .Aggregate((a, b) => a + ", \n" + b);
+            // var opMulScalarRight = SF.ParseMemberDeclaration($@"
+            //    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public static {typeName} operator *({typeName} lhs, {fType.name} rhs) {{
+            //         return new {typeName}(
+            //             {opMulScalarRightInstructions}
+            //         );
+            //     }}");
+
+            // var opDivScalarRightInstructions = fields.Select((coeff, index) => $@"lhs.{CoefficientNames[index]} / rhs")
+            //     .Aggregate((a, b) => a + ", \n" + b);
+            // var opDivScalarRight = SF.ParseMemberDeclaration($@"
+            //    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public static {typeName} operator /({typeName} lhs, {fType.name} rhs) {{
+            //         return new {typeName}(
+            //             {opDivScalarRightInstructions}
+            //         );
+            //     }}");
+
+            // type = type.AddMembers(
+            //     opAdd,
+            //     opSub,
+            //     opMulScalarRight,
+            //     opDivScalarRight);
+
+
+            // /* Equality */
+
+            // var eqInstructions = fields.Select((coeff, index) => $@"this.{CoefficientNames[index]} == rhs.{CoefficientNames[index]}")
+            //     .Aggregate((a, b) => a + " &&\n" + b);
+            // var equals = SF.ParseMemberDeclaration($@"
+            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public bool Equals({typeName} rhs) {{
+            //         return {eqInstructions};
+            //     }}");
+
+            // var equalsObj = SF.ParseMemberDeclaration($@"
+            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public override bool Equals(object o) {{
+            //         if (!(o is {typeName})) {{
+            //             return false;
+            //         }}
+            //         return Equals(({typeName})o);
+            //     }}");
+
+            // var opEq = SF.ParseMemberDeclaration($@"
+            //     public static bool operator ==({typeName} lhs, {typeName} rhs) {{
+            //         return lhs.Equals(rhs);
+            //     }}");
+
+            // var opNEq = SF.ParseMemberDeclaration($@"
+            //     public static bool operator !=({typeName} lhs, {typeName} rhs) {{
+            //         return !lhs.Equals(rhs);
+            //     }}");
+
+            // type = type.AddMembers(
+            //     equals,
+            //     equalsObj,
+            //     opEq,
+            //     opNEq);
+
+            // // Other
+
+            // /*
+            // GetHashCode
+
+            // Todo: None of these make particular sense for each type yet...
+            // */
+            // var getHashCodeInstructions = fields.Select((coeff, index) => $@"this.{CoefficientNames[index]}.v")
+            //    .Aggregate((a, b) => a + " ^\n" + b);
+            // var getHashCode = SF.ParseMemberDeclaration($@"
+            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public override int GetHashCode() {{
+            //         return (int)({getHashCodeInstructions});
+            //     }}");
+
+            // var toStringReplaceList = fields.Select((coeff, index) => $@"{{{index}:0.000}}")
+            //    .Aggregate((a, b) => a + ", " + b);
+            // var toStringCoeffs = fields.Select((coeff, index) => $@"{fType.name}.ToFloat(this.{CoefficientNames[index]})")
+            //    .Aggregate((a, b) => a + ", " + b);
+            // var toString = SF.ParseMemberDeclaration($@"
+            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public override string ToString() {{
+            //         return string.Format(""{typeName}({toStringReplaceList})"", {toStringCoeffs});
+            //     }}");
+
+            // var toStringFormat = SF.ParseMemberDeclaration($@"
+            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public string ToString(string format, IFormatProvider formatProvider) {{
+            //         return ToString();
+            //     }}");
+
+            // type = type.AddMembers(
+            //     getHashCode,
+            //     toString,
+            //     toStringFormat);
 
             nameSpace = nameSpace.AddMembers(type);
             unit = unit.AddMembers(nameSpace);
 
-            return (typeName, CSharpSyntaxTree.Create(unit));
+            return (fType, CSharpSyntaxTree.Create(unit));
         }
     }
 }

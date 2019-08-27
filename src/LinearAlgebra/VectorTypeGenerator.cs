@@ -71,12 +71,13 @@ namespace CodeGeneration {
 
 
             var coefficientFields = new List<MemberDeclarationSyntax>();
+            var fieldSizeBytes = fType.wordLength / 8;
 
             int fieldOffset = 0;
             for (int i = 0; i < numDimensions; i++) {
                 var coeff = SF.ParseMemberDeclaration($@"[FieldOffset({fieldOffset})] public {fType.name} {CoefficientNames[i]};");
                 coefficientFields.Add(coeff);
-                fieldOffset += 4; // Todo: automatically do this, by sizeof type
+                fieldOffset += fieldSizeBytes;
             }
 
             type = type.AddMembers(coefficientFields.ToArray());
@@ -211,7 +212,21 @@ namespace CodeGeneration {
             Todo:
             For these operations, you probably want to directly calculate using
             the underlying int values, then return the result as new qn_m(intValue)
-             */
+
+            Example:
+
+            long result =
+                (long)lhs.x.v * rhs.x.v +
+                (long)lhs.y.v * rhs.y.v +
+                (long)lhs.z.v * rhs.z.v +
+                (long)lhs.w.v * rhs.w.v +
+                4 * qs15_16.HalfEpsilon;
+
+            return new qs15_16((int)(result >> qs15_16.Scale));
+
+            If we could get Burst to turn this into vectorized MAD,
+            that'd be perfect.
+            */
 
             var dotInstructions = coefficientFields.Select((coeff, index) => $@"lhs.{CoefficientNames[index]} * rhs.{CoefficientNames[index]}")
                 .Aggregate((a, b) => a + " +\n" + b);
