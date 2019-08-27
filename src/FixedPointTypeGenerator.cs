@@ -208,13 +208,44 @@ namespace CodeGeneration {
             /*
                 Todo:
                 - decide whether return type is lhType or rhType
-                - shift one to meet the other before adding
+
+                - Like with all the other ops, reason about
+                precision
+
+                If lh has 8 fract bits, rh has 16 frac bits, we may shift rh
+                to the right by 8 bits to match. We then also lose 8 of those
+                fractional bits.
+
+                If lh has 7 integer bits, and rhType has 12, we run
+                a real risk of overflowing, unless the actual value
+                in rhType is low enough to no occupy those high bits.
              */
-            int shift = rhType.fractionalBits - lhType.fractionalBits;
+            int signedShift = lhType.fractionalBits - rhType.fractionalBits;
+            string shiftOp = signedShift >= 0 ? "<<" : ">>";
+            int shiftAmount = Math.Abs(signedShift);
+
+            string wordCastOpt = lhType.word.Size == WordSize.B32 ? "" : $@"({lhType.wordType})";
+
             var opAdd = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {lhType.name} operator +({lhType.name} lhs, {rhType.name} rhs) {{
-                    return new {lhType.name}(({lhType.wordType})(lhs.v + rhs.v));
+                    return new {lhType.name}({wordCastOpt}(lhs.v + ({lhType.wordType})(rhs.v {shiftOp} {shiftAmount})));
+                }}");
+
+            return opAdd;
+        }
+
+        private static MemberDeclarationSyntax GenerateSubber(FixedPointType lhType, FixedPointType rhType) {
+            int signedShift = lhType.fractionalBits - rhType.fractionalBits;
+            string shiftOp = signedShift >= 0 ? "<<" : ">>";
+            int shiftAmount = Math.Abs(signedShift);
+
+            string wordCastOpt = lhType.word.Size == WordSize.B32 ? "" : $@"({lhType.wordType})";
+
+            var opAdd = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {lhType.name} operator -({lhType.name} lhs, {rhType.name} rhs) {{
+                    return new {lhType.name}({wordCastOpt}(lhs.v - ({lhType.wordType})(rhs.v {shiftOp} {shiftAmount})));
                 }}");
 
             return opAdd;
@@ -224,28 +255,22 @@ namespace CodeGeneration {
         Generates a multiplier that returns the type of the left-hand-side argument.
          */
         private static MemberDeclarationSyntax GenerateMultiplier(FixedPointType lhType, FixedPointType rhType) {
-            // int postMulIntegerBits = lhType.integerBits + rhType.integerBits;
-            // int postMulFractionalBits = lhType.fractionalBits + rhType.fractionalBits;
-
-            /*
-                Todo: This current setup only works for cases where
-                lhType.fractionalBits >= rhType.fractionalBits
-
-                Does it even make sens to support cases there that
-                condition isn't met?
-
-                Oh! Of course, we'll still get a working variant of this,
-                where the lhs and rhs are switched. So instead of getting
-                a full matrix we get a diagonal matrix.
-
-                Fine with me, forces you to consider precision.
-             */
-
             /*
             Todo:
+
             consider case where rhType.fractionalBits == 0, such that
             halfEpsilonShiftBits becomes 1 << -1, which doesn't make sense.
-             */
+
+            If one of the types is signed, the resulting type must also be signed?
+
+            We could also generate a linter warning pointing out that this
+            might generate invalid results.
+            */
+
+            /*
+            For each permutation of types, we get a different halfEpsilon
+            constant used for rounding.
+            */
             int halfEpsilonShiftBits = Math.Max(0, rhType.fractionalBits - 1);
             string halfEpsilon = $@"const {lhType.doubleWordType} halfEpsilon = 
                     ({lhType.doubleWordType})(({lhType.wordType})1 << {halfEpsilonShiftBits});";
@@ -555,16 +580,16 @@ namespace CodeGeneration {
                     return new {fType.name}({wordCastOpt}(lhs.v + rhs.v));
                 }}");
 
-            var opIncr = SF.ParseMemberDeclaration($@"
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {fType.name} operator ++({fType.name} lhs) {{
-                    return new {fType.name}({wordCastOpt}(lhs.v+1));
-                }}");
-
             var opSub = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator -({fType.name} lhs, {fType.name} rhs) {{
                     return new {fType.name}({wordCastOpt}(lhs.v - rhs.v));
+                }}");
+
+            var opIncr = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {fType.name} operator ++({fType.name} lhs) {{
+                    return new {fType.name}({wordCastOpt}(lhs.v+1));
                 }}");
 
             var opDecr = SF.ParseMemberDeclaration($@"
@@ -572,6 +597,24 @@ namespace CodeGeneration {
                 public static {fType.name} operator --({fType.name} lhs) {{
                     return new {fType.name}({wordCastOpt}(lhs.v - 1));
                 }}");
+
+            // Add with all other fTypes
+            for (int i = 0; i < fTypes.Count; i++) {
+                var rhType = fTypes[i];
+                if (rhType.name != fType.name && fType.integerBits >= rhType.integerBits) {
+                    var op = GenerateAdder(fType, rhType);
+                    type = type.AddMembers(op);
+                }
+            }
+
+            // Sub with all other fTypes
+            for (int i = 0; i < fTypes.Count; i++) {
+                var rhType = fTypes[i];
+                if (rhType.name != fType.name && fType.integerBits >= rhType.integerBits) {
+                    var op = GenerateSubber(fType, rhType);
+                    type = type.AddMembers(op);
+                }
+            }
 
             /*
             Multiplication
@@ -582,7 +625,7 @@ namespace CodeGeneration {
             Todo: a version that doesn't shift back after each multiply, but
             lets you chain multiple MADS before shifting back.
 
-            You can pre-shift, throwing out some precision, but staying within register limits
+            You can pre-shift, throwing out some precision, but staying within register limits.
             I chose HalfScale here, but you could >> 4 the inputs, with a final shift at the end
 
             return new {fType.name}((lhs.v>>HalfScale) * (rhs.v>>HalfScale)); // >> 0
@@ -603,8 +646,8 @@ namespace CodeGeneration {
                 // var rhType = new FixedPointType(new WordType(WordSize.B16, WordSign.Unsigned), 8);
                 var rhType = fTypes[i];
                 if (rhType.name != fType.name && fType.fractionalBits >= rhType.fractionalBits) {
-                    var opMulMixed = GenerateMultiplier(fType, rhType);
-                    type = type.AddMembers(opMulMixed);
+                    var op = GenerateMultiplier(fType, rhType);
+                    type = type.AddMembers(op);
                 }
             }
 
@@ -621,7 +664,7 @@ namespace CodeGeneration {
             return new {fType.name}((int)((lhs.v << HalfScale) / (rhs.v >> HalfScale)));
             */
 
-            var opDiv = SF.ParseMemberDeclaration($@"
+            var opDivSelf = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator /({fType.name} lhs, {fType.name} rhs) {{
                     return new {fType.name}(
@@ -635,7 +678,7 @@ namespace CodeGeneration {
                 opSub,
                 opDecr,
                 opMulSelf,
-                opDiv);
+                opDivSelf);
 
             
 

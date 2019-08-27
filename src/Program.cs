@@ -78,7 +78,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     sizeof(q24_7) // This doesn't compile without unsafe. Compiler cannot infer
     const size from members...
 
-    === Burst Vectorization ??? ===
+    === Burst Auto Vectorization ??? ===
 
     In Unity.Mathematics sourcecode readme, it says:
 
@@ -92,6 +92,20 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
     If it doesn't I'll be rather disappointed, and perhaps be moved to say:
     sod it, I'm taking all this into Rust and not looking back.
+
+    Edit: It vectorizes **sometimes**
+
+    https://stackoverflow.com/questions/8193601/sse-multiplication-16-x-uint8-t
+
+    === CIL Optimization ===
+
+    Some CIL optimizations should be safe, like returning
+    
+    unsafe_cast<qn_m>(intValue)
+    
+    instead of 
+
+    new qn_m(intValue)
 
     ------
 
@@ -108,8 +122,8 @@ namespace CodeGeneration {
         public const string OutputPathSource = "output/src/";
         public const string OutputPathLibSecondary = "E:/code/unity/BurstDynamics/Assets/Plugins/RamjetMath";
 
-        public const bool EmitSourceCode = true;
-        public const bool CopyToUnityProject = true;
+        public const bool EmitSourceCodeToUnityProject = true;
+        public const bool CopyToUnityProject = false;
     }
 
     class Program  {
@@ -121,15 +135,12 @@ namespace CodeGeneration {
         }
 
         private static void TestStuff() {
-            Console.WriteLine(-Math.Pow(2, 7));
-            Console.WriteLine(Math.Pow(2, 7) - Math.Pow(2, -8));
-            
+            short a = (short)(112 << 7);
+            sbyte b = (sbyte)(1 << 4);
+            short bShort = (short)(b << 3);
 
-            // ({wordType})((({doubleWordCast}lhs.v << Scale) / rhs.v))
-            // byte four = (byte)(4 << 4);
-            // byte eight = (byte)(8 << 4);
-            // byte result = (byte)(((ushort)four << 4) / eight);
-            // Console.WriteLine(result / (double)(1 << 4));
+            short v = (short)((a + bShort) >> 7);
+            Console.WriteLine(v);
         }
 
         private static void GenerateLibraries() {
@@ -232,19 +243,24 @@ namespace CodeGeneration {
 
             var types = new List<(FixedPointType type, SyntaxTree tree)>();
 
-            // Vector_2d
+            // Vector_2
             for (int i = 0; i < fpTypes.Count; i++) {
                 types.Add(VectorTypeGenerator.GenerateType(fpTypes[i].type, 2));
             }
 
-            // Vector_3d
+            // Vector_3
             for (int i = 0; i < fpTypes.Count; i++) {
                 types.Add(VectorTypeGenerator.GenerateType(fpTypes[i].type, 3));
             }
 
-            // Vector_4d
+            // Vector_4
             for (int i = 0; i < fpTypes.Count; i++) {
                 types.Add(VectorTypeGenerator.GenerateType(fpTypes[i].type, 4));
+            }
+
+            // Matrix_2x2
+            for (int i = 0; i < fpTypes.Count; i++) {
+                types.Add(MatrixTypeGenerator.GenerateType(fpTypes[i].type, 2, 2));
             }
 
             // Compile types into library, including needed references
@@ -306,8 +322,8 @@ namespace CodeGeneration {
 
             // Optionally also write out each generated type as C# code text files
             // useful for debugging
-            if (Config.EmitSourceCode) {
-                string outputPathSource = Path.Join(Config.OutputPathSource, libName);
+            if (Config.EmitSourceCodeToUnityProject) {
+                string outputPathSource = Path.Join(Config.OutputPathLibSecondary, libName);
                 if (!Directory.Exists(outputPathSource)) {
                     Directory.CreateDirectory(outputPathSource);
                 }
