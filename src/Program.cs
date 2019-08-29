@@ -9,9 +9,12 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 /*
     Todo:
+
+    - mixed-type vector ops
+    - mul and div by simple fractions, like 2/1, 1/4, etc.
     - automated testing
     - halfEpsilon for fractionalBits = 0
-    - negative fractionalBits?
+    - negative fractionalBits, and extended scale types?
     - Does Burst vectorize these types?
         - Before that: right now burst actually fails to compile Fixed code
         because it cannot resolve the LinearAlgebra library.
@@ -45,14 +48,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     I wonder how big the library becomes, how much it'll slow things down, and just
     how polluted Intellisense will end up...
     
-    === Precision: Analysis and Design ===
-
-    Many operations are not commutative, precision-wise.
-
-    a * b might overflow, or loose vast amounts of fractional bits
-    b * a might be perfectly fine.
-
-    === Proxy Types ===
+    * Proxy Types *
 
     Idea: Generate generic proxy types! Some valid C#, such that it compiles, and we
     get nice intellisense, and we're not flooded with types. Then, we take that
@@ -64,10 +60,32 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
     Trying this in ProxyTypeTest.cs. Could work, but has some serious downsides.
 
-    === Code Stripping ===
+    * Code Stripping *
 
     Conversely, we can generate all variants but then strip all the unused ones
     after a Unity build.
+
+    * Computation Graphs *
+
+    A Tensorflow-like syntax that specifies computation graphs in a functional,
+    declarative style. Runtime object creation builds a graph that does the
+    actual stuff. The syntax would end up looking a lot like the use of a
+    proxy type, but the implementation would fight the language and compiler
+    less.
+
+    === Precision: Analysis and Design ===
+
+    Many operations are not commutative, precision-wise.
+
+    a * b might overflow, or loose vast amounts of fractional bits
+    b * a might be perfectly fine.
+
+    * Dithering *
+
+    8 bit particle simulations and the like would really benefit from
+    a solid dithering approach. I believe there is tremendous computational
+    power in this, much like dithering can make a world of difference
+    in image processing.
 
     === Literals ===
 
@@ -81,7 +99,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     Have a dedicated function modifier key, then press another key to choose
     type. That command tells the IDE to generate new vec3_27_4(*cursor*).
 
-    === Const Declarations ===
+    * Const Declarations *
 
     Not supported by C#. Minor issue though, right?
 
@@ -124,6 +142,27 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
     ------
 
+    Beyond the Basics
+
+    I want types that actually go way beyond the qn_m types
+    I have now.
+
+    When doing highly quantized physics, I want to track
+    velocity with 8 bits of mostly fraction, but for
+    an 8 bit position I want only 3 fraction bits or
+    less.
+
+    I might often now want the result of a multiplication
+    to be downshifted.
+
+    I might want a qs3_2 type, which lives 8 bits.
+    I might want to accumulate 16 other numbers and have
+    enough accumulator bits for precisely that, like in
+    neural networks or other things that use n-dim inner
+    products.
+
+    ----
+
     Useful for finding roslyn structures
     http://roslynquoter.azurewebsites.net
  */
@@ -143,19 +182,64 @@ namespace CodeGeneration {
 
     class Program  {
         public static void Main(string[] args) {
-            // TestStuff();
-            // ProxyTypeTest.RewriteScalarTypeTest();
+            TestStuff();
 
             GenerateLibraries();
         }
 
         private static void TestStuff() {
-            // short a = (short)(112 << 7);
-            // sbyte b = (sbyte)(1 << 4);
-            // short bShort = (short)(b << 3);
+            /* 
+            In which we try to figure out correct rounding behaviour
+            for division.
 
-            // short v = (short)((a + bShort) >> 7);
-            // Console.WriteLine(v);
+            In this example I get the best results when I increment
+            by ONE before division, for positive numbers.
+
+            For division I need to decrement by ONE first.
+
+            --
+
+            Be aware that choice of rounding technique is never
+            trivial.
+
+            - Truncation
+            - Always rounding towards zero
+            - Biased rounding (where exact value of 0.5 is always rounded up)
+            - jittered rounding, etc.
+             */
+
+            // int scale = 4;
+            // short roundingValue = 0;//(short)(1 << (scale));
+
+            // int aInt = -5;
+            // int bInt = 3;
+
+            // short a = (short)(aInt << scale);
+            // short b = (short)(bInt << scale);
+            // short c = (short)(((a << scale ) + roundingValue) / b);
+
+            // double fractScale = (double)(1 << scale);
+            // Console.WriteLine(a / fractScale);
+            // Console.WriteLine(b / fractScale);
+            // Console.WriteLine(c / fractScale);
+
+            // Console.WriteLine((c / fractScale) - (aInt / (double)bInt));
+
+            // Adding a negative rational, do we ever need rounding?
+
+            Console.WriteLine(-3/2);
+
+            // --------------------
+
+            // int scale = 8;
+            // short a = (short)(0x0100);
+            // short b = (short)(0x00ff);
+
+            // double fractScale = (double)(1 << scale);
+            // Console.WriteLine(a / fractScale);
+            // Console.WriteLine(b / fractScale);
+            // Console.WriteLine((a - b) / fractScale);
+            // Console.WriteLine((256 - (a - b)) / fractScale);
         }
 
         private static void GenerateLibraries() {

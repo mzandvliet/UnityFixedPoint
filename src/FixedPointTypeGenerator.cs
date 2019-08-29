@@ -11,30 +11,13 @@ using SK = Microsoft.CodeAnalysis.CSharp.SyntaxKind;
 
 /*
     Todo:
-    - unsigned type arithmetic (no need for tricks with sign mask)
 
-    - Add intialization by raw int value
-    - support mixed arithmetic with raw int types
-        - var num = q24_7.one / 4;
+    - Figure out rounding for +, -, *, /
 
-    Notes:
+    - >, <, >=, <= (for mixed types too?)
+    - min, max, clamp
+    - negation by writing -value
 
-    === Explicit casting ===
-
-    short + short -> int
-
-    Hence, we need copious amounts of casting for non-int word types.
-
-    Here's a stack overflow thread, with Eric Lippert giving some details:
-    https://stackoverflow.com/questions/4343624/integer-summing-blues-short-short-problem
-    https://stackoverflow.com/questions/941584/byte-byte-int-why
-
-    I can't say I'm entirely on board with the chosen direction, but... now
-    we know.
-
-    But wait, there's more restrictions on shifting:
-
-    https://social.msdn.microsoft.com/Forums/vstudio/en-US/1e9d6e3b-bbad-45df-9391-7403becd9641/shift-ltlt-operator-cannot-be-applied-to-uint
  */
 
 namespace CodeGeneration {
@@ -259,7 +242,7 @@ namespace CodeGeneration {
             Todo:
 
             consider case where rhType.fractionalBits == 0, such that
-            halfEpsilonShiftBits becomes 1 << -1, which doesn't make sense.
+            HalfShiftBits becomes 1 << -1, which doesn't make sense.
 
             If one of the types is signed, the resulting type must also be signed?
 
@@ -268,21 +251,21 @@ namespace CodeGeneration {
             */
 
             /*
-            For each permutation of types, we get a different halfEpsilon
+            For each permutation of types, we get a different Half
             constant used for rounding.
             */
-            int halfEpsilonShiftBits = Math.Max(0, rhType.fractionalBits - 1);
-            string halfEpsilon = $@"const {lhType.doubleWordType} halfEpsilon = 
-                    ({lhType.doubleWordType})(({lhType.wordType})1 << {halfEpsilonShiftBits});";
+            int halfShiftBits = Math.Max(0, rhType.fractionalBits - 1);
+            string half = $@"const {lhType.doubleWordType} half = 
+                    ({lhType.doubleWordType})(({lhType.wordType})1 << {halfShiftBits});";
 
             var op = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {lhType.name} operator *({lhType.name} lhs, {rhType.name} rhs) {{
-                    {halfEpsilon}
+                    {half}
 
                     {lhType.doubleWordType} lhsLong = lhs.v;
                     {lhType.doubleWordType} rhsLong = ({lhType.doubleWordType})rhs.v;
-                    {lhType.doubleWordType} result = ({lhType.doubleWordType})((lhsLong * rhsLong) + halfEpsilon);
+                    {lhType.doubleWordType} result = ({lhType.doubleWordType})((lhsLong * rhsLong) + half);
                     return new {lhType.name}(({lhType.wordType})(result >> {rhType.fractionalBits}));
                 }}");
 
@@ -291,36 +274,30 @@ namespace CodeGeneration {
 
         private static MemberDeclarationSyntax GenerateDivisor(FixedPointType lhType, FixedPointType rhType) {
             /*
-            Todo: Not performing any rounding with halfEpsilon tricks here yet,
+            Todo: Not performing any rounding with half tricks here yet,
             need to work out what the right thing is to do.
 
-            Also, we have halfEpsilon as an int here, when 32-bits or less.
+            Also, we have half as an int here, when 32-bits or less.
             This is because it is applied immediately after a shift, which returns Int32
             in those cases
             */
 
-            // string halfEpsilonType = lhType.wordLength <= 32 ? "int" : $@"{lhType.doubleWordType}";
-            // int halfEpsilonShiftBits = Math.Max(0, rhType.fractionalBits - 1);
-            // string halfEpsilon = $@"const {halfEpsilonType} halfEpsilon = (1 << {halfEpsilonShiftBits});";
+            string halfType = lhType.wordLength <= 32 ? "int" : $@"{lhType.doubleWordType}";
+            int halfShiftBits = Math.Max(0, rhType.fractionalBits - 1);
+            string half = $@"const {halfType} half = (1 << {halfShiftBits});";
 
             var op = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {lhType.name} operator /({lhType.name} lhs, {rhType.name} rhs) {{
-                    {lhType.doubleWordType} lhsLong = ({lhType.doubleWordType})(lhs.v << {rhType.fractionalBits});
+                    {half}
+
+                    {lhType.doubleWordType} lhsLong = ({lhType.doubleWordType})((lhs.v << {rhType.fractionalBits}) + half);
                     {lhType.doubleWordType} rhsLong = ({lhType.doubleWordType})rhs.v;
                     return new {lhType.name}(({lhType.wordType})(lhsLong / rhsLong));
                 }}");
 
             return op;
         }
-
-        // var opDivSelf = SF.ParseMemberDeclaration($@"
-        //         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        //         public static {fType.name} operator /({fType.name} lhs, {fType.name} rhs) {{
-        //             return new {fType.name}(
-        //                 ({fType.wordType})((({doubleWordCast}lhs.v << Scale) / rhs.v))
-        //             );
-        //         }}");
 
         /*
             Todo:
@@ -404,8 +381,8 @@ namespace CodeGeneration {
 
             var epsilon = SF.ParseMemberDeclaration(
                 $@"public static readonly {fType.name} Epsilon = new {fType.name}(1);");
-            var halfEpsilon = SF.ParseMemberDeclaration(
-                $@"private const {fType.doubleWordType} HalfEpsilon = 
+            var half = SF.ParseMemberDeclaration(
+                $@"private const {fType.doubleWordType} Half = 
                     ({fType.doubleWordType})(Scale > 0 ? (({fType.wordType})1 << (Scale-1)) : (0));");
 
             type = type.AddMembers(
@@ -423,23 +400,21 @@ namespace CodeGeneration {
                 zero,
                 one,
                 epsilon,
-                halfEpsilon);
+                half);
 
-            // Optional sign mask constant for signed types
-            if (fType.signBit == 1) {
-                string signBitMask = GenerateSignBitMaskLiteral(fType);
+            // sign mask constant for signed types
 
-                var signMask = SF.ParseMemberDeclaration(
-                    $@"private const {fType.wordType} SignMask = unchecked(({fType.wordType}){signBitMask});");
-
-                type = type.AddMembers(signMask);
-            }
+            string signBitMask = GenerateSignBitMaskLiteral(fType);
+            var signMask = SF.ParseMemberDeclaration(
+                $@"private const {fType.wordType} SignMask = unchecked(({fType.wordType}){signBitMask});");
+            
+            type = type.AddMembers(signMask);
 
             // Value field, in which number is stored
 
             var rawValue = SF.ParseMemberDeclaration(
                 $@"[FieldOffset(0)] public {fType.wordType} v;");
-            
+
             type = type.AddMembers(rawValue);
 
             // Constructors
@@ -607,25 +582,25 @@ namespace CodeGeneration {
             Todo: Simplify the code for generating all mixed-type variants
             */
 
-            var opAdd = SF.ParseMemberDeclaration($@"
+            var opAddSelf = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator +({fType.name} lhs, {fType.name} rhs) {{
                     return new {fType.name}({wordCastOpt}(lhs.v + rhs.v));
                 }}");
 
-            var opSub = SF.ParseMemberDeclaration($@"
+            var opSubSelf = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator -({fType.name} lhs, {fType.name} rhs) {{
                     return new {fType.name}({wordCastOpt}(lhs.v - rhs.v));
                 }}");
 
-            var opIncr = SF.ParseMemberDeclaration($@"
+            var opIncrSelf = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator ++({fType.name} lhs) {{
                     return new {fType.name}({wordCastOpt}(lhs.v+1));
                 }}");
 
-            var opDecr = SF.ParseMemberDeclaration($@"
+            var opDecrSelf = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator --({fType.name} lhs) {{
                     return new {fType.name}({wordCastOpt}(lhs.v - 1));
@@ -646,15 +621,20 @@ namespace CodeGeneration {
             return new {fType.name}((lhs.v>>HalfScale) * (rhs.v>>HalfScale)); // >> 0
             */
 
-            // Mul with self
             var opMulSelf = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator *({fType.name} lhs, {fType.name} rhs) {{
                     {fType.doubleWordType} lhsLong = lhs.v;
                     {fType.doubleWordType} rhsLong = rhs.v;
-                    {fType.doubleWordType} result = {doubleWordCastOpt}((lhsLong * rhsLong) + HalfEpsilon);
+                    {fType.doubleWordType} result = {doubleWordCastOpt}((lhsLong * rhsLong) + Half);
                     return new {fType.name}({wordCast}(result >> Scale));
                 }}");
+
+            // var opMulSelf = SF.ParseMemberDeclaration($@"
+            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public static {fType.name} operator *({fType.name} lhs, {fType.name} rhs) {{
+            //         return new {fType.name}(({fType.wordType})((lhs.v * rhs.v) >> Scale));
+            //     }}");
 
             /*
             Division
@@ -673,17 +653,83 @@ namespace CodeGeneration {
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator /({fType.name} lhs, {fType.name} rhs) {{
                     return new {fType.name}(
-                        ({fType.wordType})((({doubleWordCast}lhs.v << Scale) / rhs.v))
+                        ({fType.wordType})(((({doubleWordCast}(lhs.v) << Scale)) / rhs.v))
                     );
                 }}");
 
+            // Todo: greaterThan, smallerThan for all mixed types
+            var opGreaterThanSelf = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static bool operator >({fType.name} lhs, {fType.name} rhs) {{
+                    return lhs.v > rhs.v;
+                }}");
+
+            var opSmallerThanSelf = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static bool operator <({fType.name} lhs, {fType.name} rhs) {{
+                    return lhs.v < rhs.v;
+                }}");
+
             type = type.AddMembers(
-                opAdd,
-                opIncr,
-                opSub,
-                opDecr,
+                opAddSelf,
+                opIncrSelf,
+                opSubSelf,
+                opDecrSelf,
                 opMulSelf,
-                opDivSelf);
+                opDivSelf,
+                opGreaterThanSelf,
+                opSmallerThanSelf);
+
+            var opAddInt = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {fType.name} operator +({fType.name} lhs, int rhs) {{
+                    return new {fType.name}({wordCastOpt}(lhs.v + {wordCast}(rhs << Scale)));
+                }}");
+
+            var opSubInt = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {fType.name} operator -({fType.name} lhs, int rhs) {{
+                    return new {fType.name}({wordCastOpt}(lhs.v - {wordCast}(rhs << Scale)));
+                }}");
+
+            var opMulInt = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {fType.name} operator *({fType.name} lhs, int rhs) {{
+                    {fType.doubleWordType} lhsLong = lhs.v;
+                    {fType.doubleWordType} rhsLong = {doubleWordCast}rhs;
+                    {fType.doubleWordType} result = {doubleWordCastOpt}((lhsLong * rhsLong));
+                    return new {fType.name}({wordCast}(result));
+                }}");
+
+            var opDivInt = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {fType.name} operator /({fType.name} lhs, int rhs) {{
+                    {fType.doubleWordType} lhsLong = lhs.v;
+                    {fType.doubleWordType} rhsLong = {doubleWordCast}rhs;
+                    {fType.doubleWordType} result = {doubleWordCastOpt}((lhsLong / rhsLong));
+                    return new {fType.name}({wordCast}(result));
+                }}");
+
+            var opShiftRight = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {fType.name} operator >> ({fType.name} lhs, int rhs) {{
+                    int half = (1 << (rhs - 1)) * (int)(SignMask & lhs.v);
+                    return new {fType.name}({wordCast}((lhs.v + half) >> rhs));
+                }}");
+
+            var opShiftLeft = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {fType.name} operator << ({fType.name} lhs, int rhs) {{
+                    return new {fType.name}({wordCastOpt}(lhs.v << rhs));
+                }}");
+
+            type = type.AddMembers(
+               opAddInt,
+               opSubInt,
+               opMulInt,
+               opDivInt,
+               opShiftRight,
+               opShiftLeft);
 
             /*
             Generate mixed-type operators
