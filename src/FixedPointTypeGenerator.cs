@@ -125,180 +125,6 @@ namespace CodeGeneration {
             public bool AddRangeChecks = true;
         }
 
-        private static string GenerateSignBitMaskLiteral(in FixedPointType fType) {
-            var maskBuilder = new StringBuilder();
-
-            maskBuilder.Append("0b");
-            maskBuilder.Append("1");
-            for (int i = 1; i < fType.wordLength; i++) {
-                if (i > 0 && i % 4 == 0) {
-                    maskBuilder.Append("_");
-                }
-                maskBuilder.Append("0");
-            }
-
-            return maskBuilder.ToString();
-        }
-
-        private static string GenerateFractionalMaskLiteral(in FixedPointType fType, string intBitChar = "0", string fracBitChar = "1") {
-            var maskBuilder = new StringBuilder();
-
-            int wordLength = (int)fType.word.Size;
-         
-            if (fType.integerBits + fType.fractionalBits != wordLength - fType.signBit) {
-                throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - fType.signBit));
-            }
-
-            maskBuilder.Append("0b");
-            for (int i = 0; i < fType.integerBits; i++) {
-                if (i > 0 && i % 4 == 0) {
-                    maskBuilder.Append("_");
-                }
-                maskBuilder.Append(intBitChar);
-            }
-            for (int i = fType.integerBits; i < wordLength; i++) {
-                if (i > 0 && i % 4 == 0) {
-                    maskBuilder.Append("_");
-                }
-                maskBuilder.Append(fracBitChar);
-            }
-
-            return maskBuilder.ToString();
-        }
-
-        private static SyntaxToken GetFieldIdentifier(MemberDeclarationSyntax field) {
-            return field.SyntaxTree.GetRoot().DescendantNodesAndSelf().OfType<FieldDeclarationSyntax>().First().Declaration.Variables.First().Identifier;
-        }
-
-        private static string GenerateRangeCheck(FixedPointType fType, string variableName, SyntaxToken minName, SyntaxToken maxName) {
-            /*
-            Todo: might be better to make this a preprocessor thing, using
-            #if ENABLE_FIXED_POINT_RANGE_CHECKS
-            ...
-            #endif
-             */
-            return $@"
-                if ({variableName} < {minName} || {variableName} > {maxName}) {{
-                    throw new System.ArgumentException(string.Format(
-                        ""value {{0}} lies outside of representable range [{{1}} , {{2}}] for {fType.signBit}"",
-                        {variableName},
-                        {minName.ToString()},
-                        {maxName.ToString()}));
-                }}";
-        }
-
-        private static MemberDeclarationSyntax GenerateAdder(FixedPointType lhType, FixedPointType rhType) {
-            /*
-                Todo:
-                - decide whether return type is lhType or rhType
-
-                - Like with all the other ops, reason about
-                precision
-
-                If lh has 8 fract bits, rh has 16 frac bits, we may shift rh
-                to the right by 8 bits to match. We then also lose 8 of those
-                fractional bits.
-
-                If lh has 7 integer bits, and rhType has 12, we run
-                a real risk of overflowing, unless the actual value
-                in rhType is low enough to no occupy those high bits.
-             */
-            int signedShift = lhType.fractionalBits - rhType.fractionalBits;
-            string shiftOp = signedShift >= 0 ? "<<" : ">>";
-            int shiftAmount = Math.Abs(signedShift);
-
-            string wordCastOpt = lhType.word.Size == WordSize.B32 ? "" : $@"({lhType.wordType})";
-
-            var op = SF.ParseMemberDeclaration($@"
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {lhType.name} operator +({lhType.name} lhs, {rhType.name} rhs) {{
-                    return new {lhType.name}({wordCastOpt}(lhs.v + ({lhType.wordType})(rhs.v {shiftOp} {shiftAmount})));
-                }}");
-
-            return op;
-        }
-
-        private static MemberDeclarationSyntax GenerateSubber(FixedPointType lhType, FixedPointType rhType) {
-            int signedShift = lhType.fractionalBits - rhType.fractionalBits;
-            string shiftOp = signedShift >= 0 ? "<<" : ">>";
-            int shiftAmount = Math.Abs(signedShift);
-
-            string wordCastOpt = lhType.word.Size == WordSize.B32 ? "" : $@"({lhType.wordType})";
-
-            var op = SF.ParseMemberDeclaration($@"
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {lhType.name} operator -({lhType.name} lhs, {rhType.name} rhs) {{
-                    return new {lhType.name}({wordCastOpt}(lhs.v - ({lhType.wordType})(rhs.v {shiftOp} {shiftAmount})));
-                }}");
-
-            return op;
-        }
-
-        /*
-        Generates a multiplier that returns the type of the left-hand-side argument.
-         */
-        private static MemberDeclarationSyntax GenerateMultiplier(FixedPointType lhType, FixedPointType rhType) {
-            /*
-            Todo:
-
-            consider case where rhType.fractionalBits == 0, such that
-            HalfShiftBits becomes 1 << -1, which doesn't make sense.
-
-            If one of the types is signed, the resulting type must also be signed?
-
-            We could also generate a linter warning pointing out that this
-            might generate invalid results.
-            */
-
-            /*
-            For each permutation of types, we get a different Half
-            constant used for rounding.
-            */
-            int halfShiftBits = Math.Max(0, rhType.fractionalBits - 1);
-            string half = $@"const {lhType.doubleWordType} half = 
-                    ({lhType.doubleWordType})(({lhType.wordType})1 << {halfShiftBits});";
-
-            var op = SF.ParseMemberDeclaration($@"
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {lhType.name} operator *({lhType.name} lhs, {rhType.name} rhs) {{
-                    {half}
-
-                    {lhType.doubleWordType} lhsLong = lhs.v;
-                    {lhType.doubleWordType} rhsLong = ({lhType.doubleWordType})rhs.v;
-                    {lhType.doubleWordType} result = ({lhType.doubleWordType})((lhsLong * rhsLong) + half);
-                    return new {lhType.name}(({lhType.wordType})(result >> {rhType.fractionalBits}));
-                }}");
-
-            return op;
-        }
-
-        private static MemberDeclarationSyntax GenerateDivisor(FixedPointType lhType, FixedPointType rhType) {
-            /*
-            Todo: Not performing any rounding with half tricks here yet,
-            need to work out what the right thing is to do.
-
-            Also, we have half as an int here, when 32-bits or less.
-            This is because it is applied immediately after a shift, which returns Int32
-            in those cases
-            */
-
-            string halfType = lhType.wordLength <= 32 ? "int" : $@"{lhType.doubleWordType}";
-            int halfShiftBits = Math.Max(0, rhType.fractionalBits - 1);
-            string half = $@"const {halfType} half = (1 << {halfShiftBits});";
-
-            var op = SF.ParseMemberDeclaration($@"
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {lhType.name} operator /({lhType.name} lhs, {rhType.name} rhs) {{
-                    {half}
-
-                    {lhType.doubleWordType} lhsLong = ({lhType.doubleWordType})((lhs.v << {rhType.fractionalBits}) + half);
-                    {lhType.doubleWordType} rhsLong = ({lhType.doubleWordType})rhs.v;
-                    return new {lhType.name}(({lhType.wordType})(lhsLong / rhsLong));
-                }}");
-
-            return op;
-        }
-
         /*
             Todo:
             - Find out the difference between .WithX and .AddX
@@ -344,7 +170,8 @@ namespace CodeGeneration {
 
             var type = SF.StructDeclaration(fType.name)
                 .AddModifiers(SF.Token(SK.PublicKeyword))
-                .WithAttributeLists(Utils.GenerateStructLayoutAttributes());
+                .WithAttributeLists(Utils.GenerateStructLayoutAttributes())
+                .WithBaseList(Utils.ImplementIEquatable(fType.name));
 
             // Constants
 
@@ -680,6 +507,13 @@ namespace CodeGeneration {
                 opGreaterThanSelf,
                 opSmallerThanSelf);
 
+            /*
+            Todo: if backing type is unsigned, disallow some ops
+            with signed numbers, or generate runtime error plus
+            compile-time warnings when sign handling could go bad.
+
+             */
+
             var opAddInt = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator +({fType.name} lhs, int rhs) {{
@@ -704,17 +538,13 @@ namespace CodeGeneration {
             var opDivInt = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator /({fType.name} lhs, int rhs) {{
-                    {fType.doubleWordType} lhsLong = lhs.v;
-                    {fType.doubleWordType} rhsLong = {doubleWordCast}rhs;
-                    {fType.doubleWordType} result = {doubleWordCastOpt}((lhsLong / rhsLong));
-                    return new {fType.name}({wordCast}(result));
+                    return new {fType.name}({wordCast}((lhs.v / rhs)));
                 }}");
 
             var opShiftRight = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator >> ({fType.name} lhs, int rhs) {{
-                    int half = (1 << (rhs - 1)) * (int)(SignMask & lhs.v);
-                    return new {fType.name}({wordCast}((lhs.v + half) >> rhs));
+                    return new {fType.name}({wordCast}(lhs.v >> rhs));
                 }}");
 
             var opShiftLeft = SF.ParseMemberDeclaration($@"
@@ -748,6 +578,12 @@ namespace CodeGeneration {
 
                 MemberDeclarationSyntax mixedOp;
                 if (rhType.name != fType.name && fType.integerBits >= rhType.integerBits) {
+                    /*
+                        Bug: we're not yet rounding properly in some cases, such as
+                        qs3_4 operator +(qs3_4 lhs, qs1_6 rhs)
+                        where we can yield a balanced result by doing
+                        return new qs3_4((sbyte)(lhs.v + (sbyte)((rhs.v + (1 << 1)) >> 2)));
+                     */
                     mixedOp = GenerateAdder(fType, rhType);
                     type = type.AddMembers(mixedOp);
 
@@ -827,6 +663,180 @@ namespace CodeGeneration {
             unit = unit.AddMembers(nameSpace);
 
             return (fType, CSharpSyntaxTree.Create(unit));
+        }
+
+        private static string GenerateSignBitMaskLiteral(in FixedPointType fType) {
+            var maskBuilder = new StringBuilder();
+
+            maskBuilder.Append("0b");
+            maskBuilder.Append("1");
+            for (int i = 1; i < fType.wordLength; i++) {
+                if (i > 0 && i % 4 == 0) {
+                    maskBuilder.Append("_");
+                }
+                maskBuilder.Append("0");
+            }
+
+            return maskBuilder.ToString();
+        }
+
+        private static string GenerateFractionalMaskLiteral(in FixedPointType fType, string intBitChar = "0", string fracBitChar = "1") {
+            var maskBuilder = new StringBuilder();
+
+            int wordLength = (int)fType.word.Size;
+
+            if (fType.integerBits + fType.fractionalBits != wordLength - fType.signBit) {
+                throw new ArgumentException(string.Format("Number of integer bits + fractional bits needs to add to {0}", wordLength - fType.signBit));
+            }
+
+            maskBuilder.Append("0b");
+            for (int i = 0; i < fType.integerBits; i++) {
+                if (i > 0 && i % 4 == 0) {
+                    maskBuilder.Append("_");
+                }
+                maskBuilder.Append(intBitChar);
+            }
+            for (int i = fType.integerBits; i < wordLength; i++) {
+                if (i > 0 && i % 4 == 0) {
+                    maskBuilder.Append("_");
+                }
+                maskBuilder.Append(fracBitChar);
+            }
+
+            return maskBuilder.ToString();
+        }
+
+        private static SyntaxToken GetFieldIdentifier(MemberDeclarationSyntax field) {
+            return field.SyntaxTree.GetRoot().DescendantNodesAndSelf().OfType<FieldDeclarationSyntax>().First().Declaration.Variables.First().Identifier;
+        }
+
+        private static string GenerateRangeCheck(FixedPointType fType, string variableName, SyntaxToken minName, SyntaxToken maxName) {
+            /*
+            Todo: might be better to make this a preprocessor thing, using
+            #if ENABLE_FIXED_POINT_RANGE_CHECKS
+            ...
+            #endif
+             */
+            return $@"
+                if ({variableName} < {minName} || {variableName} > {maxName}) {{
+                    throw new System.ArgumentException(string.Format(
+                        ""value {{0}} lies outside of representable range [{{1}} , {{2}}] for {fType.signBit}"",
+                        {variableName},
+                        {minName.ToString()},
+                        {maxName.ToString()}));
+                }}";
+        }
+
+        private static MemberDeclarationSyntax GenerateAdder(FixedPointType lhType, FixedPointType rhType) {
+            /*
+                Todo:
+                - decide whether return type is lhType or rhType
+
+                - Like with all the other ops, reason about
+                precision
+
+                If lh has 8 fract bits, rh has 16 frac bits, we may shift rh
+                to the right by 8 bits to match. We then also lose 8 of those
+                fractional bits.
+
+                If lh has 7 integer bits, and rhType has 12, we run
+                a real risk of overflowing, unless the actual value
+                in rhType is low enough to no occupy those high bits.
+             */
+            int signedShift = lhType.fractionalBits - rhType.fractionalBits;
+            string shiftOp = signedShift >= 0 ? "<<" : ">>";
+            int shiftAmount = Math.Abs(signedShift);
+
+            string wordCastOpt = lhType.word.Size == WordSize.B32 ? "" : $@"({lhType.wordType})";
+
+            var op = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {lhType.name} operator +({lhType.name} lhs, {rhType.name} rhs) {{
+                    return new {lhType.name}({wordCastOpt}(lhs.v + ({lhType.wordType})(rhs.v {shiftOp} {shiftAmount})));
+                }}");
+
+            return op;
+        }
+
+        private static MemberDeclarationSyntax GenerateSubber(FixedPointType lhType, FixedPointType rhType) {
+            int signedShift = lhType.fractionalBits - rhType.fractionalBits;
+            string shiftOp = signedShift >= 0 ? "<<" : ">>";
+            int shiftAmount = Math.Abs(signedShift);
+
+            string wordCastOpt = lhType.word.Size == WordSize.B32 ? "" : $@"({lhType.wordType})";
+
+            var op = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {lhType.name} operator -({lhType.name} lhs, {rhType.name} rhs) {{
+                    return new {lhType.name}({wordCastOpt}(lhs.v - ({lhType.wordType})(rhs.v {shiftOp} {shiftAmount})));
+                }}");
+
+            return op;
+        }
+
+        /*
+        Generates a multiplier that returns the type of the left-hand-side argument.
+         */
+        private static MemberDeclarationSyntax GenerateMultiplier(FixedPointType lhType, FixedPointType rhType) {
+            /*
+            Todo:
+
+            consider case where rhType.fractionalBits == 0, such that
+            HalfShiftBits becomes 1 << -1, which doesn't make sense.
+
+            If one of the types is signed, the resulting type must also be signed?
+
+            We could also generate a linter warning pointing out that this
+            might generate invalid results.
+            */
+
+            /*
+            For each permutation of types, we get a different Half
+            constant used for rounding.
+            */
+            int halfShiftBits = Math.Max(0, rhType.fractionalBits - 1);
+            string half = $@"const {lhType.doubleWordType} half = 
+                    ({lhType.doubleWordType})(({lhType.wordType})1 << {halfShiftBits});";
+
+            var op = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {lhType.name} operator *({lhType.name} lhs, {rhType.name} rhs) {{
+                    {half}
+
+                    {lhType.doubleWordType} lhsLong = lhs.v;
+                    {lhType.doubleWordType} rhsLong = ({lhType.doubleWordType})rhs.v;
+                    {lhType.doubleWordType} result = ({lhType.doubleWordType})((lhsLong * rhsLong) + half);
+                    return new {lhType.name}(({lhType.wordType})(result >> {rhType.fractionalBits}));
+                }}");
+
+            return op;
+        }
+
+        private static MemberDeclarationSyntax GenerateDivisor(FixedPointType lhType, FixedPointType rhType) {
+            /*
+            Todo: Not performing any rounding with half tricks here yet,
+            need to work out what the right thing is to do.
+
+            Also, we have half as an int here, when 32-bits or less.
+            This is because it is applied immediately after a shift, which returns Int32
+            in those cases
+            */
+
+            string halfType = lhType.wordLength <= 32 ? "int" : $@"{lhType.doubleWordType}";
+            int halfShiftBits = Math.Max(0, rhType.fractionalBits - 1);
+            string half = $@"const {halfType} half = (1 << {halfShiftBits});";
+
+            var op = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {lhType.name} operator /({lhType.name} lhs, {rhType.name} rhs) {{
+                    {half}
+
+                    {lhType.doubleWordType} lhsLong = ({lhType.doubleWordType})((lhs.v << {rhType.fractionalBits}) + half);
+                    {lhType.doubleWordType} rhsLong = ({lhType.doubleWordType})rhs.v;
+                    return new {lhType.name}(({lhType.wordType})(lhsLong / rhsLong));
+                }}");
+
+            return op;
         }
     }
 }

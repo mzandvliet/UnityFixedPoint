@@ -67,8 +67,8 @@ namespace CodeGeneration {
 
             var type = SF.StructDeclaration(typeName)
                 .AddModifiers(SF.Token(SK.PublicKeyword))
-                .WithAttributeLists(Utils.GenerateStructLayoutAttributes());
-
+                .WithAttributeLists(Utils.GenerateStructLayoutAttributes())
+                .WithBaseList(Utils.ImplementIEquatable(typeName));
 
             var coefficientFields = new List<MemberDeclarationSyntax>();
             var fieldSizeBytes = fType.wordLength / 8;
@@ -243,22 +243,6 @@ namespace CodeGeneration {
                 public static {fType.name} lengthsq({typeName} lhs) {{
                     return {lengthSqInstructions};
                 }}");
-
-            // Ah, good old SQRT. Let's leave it out for now, see how we fare
-            // https://opencores.org/projects/fixed-point-sqrt
-            // var lengthInstructions = coefficientFields.Select((coeff, index) => $@"lhs.{CoefficientNames[index]} * rhs.{CoefficientNames[index]}")
-            //    .Aggregate((a, b) => a + " +\n" + b);
-            // var length = SF.ParseMemberDeclaration($@"
-            //    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            //     public static {scalarTypeName} length({typeName} lhs) {{
-            //         return new {scalarTypeName}(
-            //             {scalarTypeName}.sqrt(
-            //                 {dotInstructions}
-            //             )
-            //         );
-            //     }}");
-
-            
 
             var outerProdInstructions = new StringBuilder();
             int dimIdx = 1;

@@ -19,6 +19,20 @@ public static class Utils {
                                             SF.IdentifierName("Explicit")))))))));
     }
 
+    public static BaseListSyntax ImplementIEquatable(string equatableTypeName) {
+        return SF.BaseList(
+                SF.SingletonSeparatedList<BaseTypeSyntax>(
+                    SF.SimpleBaseType(
+                        SF.QualifiedName(
+                            SF.IdentifierName("System"),
+                            SF.GenericName(
+                                SF.Identifier("IEquatable"))
+                            .WithTypeArgumentList(
+                                SF.TypeArgumentList(
+                                    SF.SingletonSeparatedList<TypeSyntax>(
+                                        SF.IdentifierName(equatableTypeName))))))));
+    }
+
     public static string ToBitString(int value) {
         string b = System.Convert.ToString(value, 2);
         b = b.PadLeft(32, '0');
