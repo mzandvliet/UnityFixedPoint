@@ -9,12 +9,21 @@ using System.Text;
 using SF = Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 using SK = Microsoft.CodeAnalysis.CSharp.SyntaxKind;
 
+/*
+    Todo:
+
+    - Write a mat_2x2, and other specialized cases
+
+    3x3 might also be handy, as 2x2 homogeneous
+
+    You can generalize over fixed point type and all that.
+ */
 
 namespace CodeGeneration {
     public static class MatrixTypeGenerator {
-        public static (FixedPointType, SyntaxTree) GenerateType(FixedPointType fType, int dimsX, int dimsY) {
+        public static (FixedPointType, SyntaxTree) Generate2x2Type(FixedPointType fType) {
             // string dimsName = shape.Select(a => a.ToString()).Aggregate((a, b) => a + "x" + b); // this would be for general tensors...
-            string dimsName = string.Format("{0}x{1}", dimsX, dimsY);
+            string dimsName = string.Format("2x2");
             string typeName = string.Format("mat{0}_{1}", dimsName, fType.name);
 
             var usingStrings = new List<string> {
@@ -24,7 +33,6 @@ namespace CodeGeneration {
                 "UnityEngine",
                 "Unity.Mathematics",
                 "Ramjet.Math.FixedPoint",
-                "Ramjet.Math.LinearAlgebra",
             };
 
             var usings = new SyntaxList<UsingDirectiveSyntax>(
@@ -40,11 +48,11 @@ namespace CodeGeneration {
 
             var fields = new List<MemberDeclarationSyntax>();
 
-            var rowTypeName = $@"vec{dimsX}_{fType.name}";
-            var rowTypeSizeBytes = (fType.wordLength * dimsX) / 8;
+            var rowTypeName = $@"vec2_{fType.name}";
+            var rowTypeSizeBytes = (fType.wordLength * 2) / 8;
 
             int fieldOffset = 0;
-            for (int i = 0; i < dimsY; i++) {
+            for (int i = 0; i < 2; i++) {
                 var row = SF.ParseMemberDeclaration($@"[FieldOffset({fieldOffset})] public {fType.name} c{i};");
                 fields.Add(row);
                 fieldOffset += rowTypeSizeBytes;

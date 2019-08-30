@@ -182,7 +182,7 @@ namespace CodeGeneration {
 
     class Program  {
         public static void Main(string[] args) {
-            TestStuff();
+            // TestStuff();
 
             GenerateLibraries();
         }
@@ -300,7 +300,6 @@ namespace CodeGeneration {
                 types.Add(FixedPointTypeGenerator.GenerateType(fType, fTypes, options));
             }
             
-
             // Compile types into library, including needed references
             var references = ReferenceLoader.LoadUnityReferences();
 
@@ -359,7 +358,7 @@ namespace CodeGeneration {
 
             // Matrix_2x2
             for (int i = 0; i < fpTypes.Count; i++) {
-                types.Add(MatrixTypeGenerator.GenerateType(fpTypes[i].type, 2, 2));
+                types.Add(MatrixTypeGenerator.Generate2x2Type(fpTypes[i].type));
             }
 
             // Compile types into library, including needed references
