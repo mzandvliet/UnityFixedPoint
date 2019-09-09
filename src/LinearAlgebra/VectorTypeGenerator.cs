@@ -47,6 +47,7 @@ namespace CodeGeneration {
             }
 
             string typeName = string.Format("vec{0}_{1}", numDimensions, fType.name);
+            string signedTypeName = string.Format("vec{0}_{1}", numDimensions, fType.signedName);
 
             var usingStrings = new List<string> {
                 "System",
@@ -54,7 +55,7 @@ namespace CodeGeneration {
                 "System.Runtime.InteropServices",
                 "UnityEngine",
                 "Unity.Mathematics",
-                "Ramjet.Math.FixedPoint"
+                "Ramjet.Mathematics.FixedPoint"
             };
 
             var usings = new SyntaxList<UsingDirectiveSyntax>(
@@ -63,7 +64,7 @@ namespace CodeGeneration {
             var unit = SF.CompilationUnit()
                 .WithUsings(usings);
 
-            var nameSpace = SF.NamespaceDeclaration(SF.ParseName("Ramjet.Math.LinearAlgebra"));
+            var nameSpace = SF.NamespaceDeclaration(SF.ParseName("Ramjet.Mathematics.LinearAlgebra"));
 
             var type = SF.StructDeclaration(typeName)
                 .AddModifiers(SF.Token(SK.PublicKeyword))
@@ -176,8 +177,8 @@ namespace CodeGeneration {
                 .Aggregate((a, b) => a + ", \n" + b);
             var opSub = SF.ParseMemberDeclaration($@"
                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} operator -({typeName} lhs, {typeName} rhs) {{
-                    return new {typeName}(
+                public static {signedTypeName} operator -({typeName} lhs, {typeName} rhs) {{
+                    return new {signedTypeName}(
                         {opSubInstructions}
                     );
                 }}");
@@ -256,8 +257,8 @@ namespace CodeGeneration {
             } 
             var outerProduct = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} cross({typeName} lhs, {typeName} rhs) {{
-                    return new {typeName}(
+                public static {signedTypeName} cross({typeName} lhs, {typeName} rhs) {{
+                    return new {signedTypeName}(
                         {outerProdInstructions}
                     );
                 }}");

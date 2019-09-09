@@ -72,6 +72,7 @@ namespace CodeGeneration {
         };
 
         public readonly string name;
+        public readonly string signedName;
 
         public readonly WordType word;
         public readonly WordType doubleWord;
@@ -113,6 +114,7 @@ namespace CodeGeneration {
             signedWordType =    DotNetWordTypes[signedWord];
 
             this.name = GetTypeName(integerBits, fractionalBits, signBit);
+            this.signedName = GetTypeName(integerBits - (1-signBit), fractionalBits, 1);
         }
 
         public static string GetTypeName(int integerBits, int fractionalBits, int signBit) {
@@ -166,7 +168,7 @@ namespace CodeGeneration {
 
             var unit = SF.CompilationUnit().WithUsings(usings);
 
-            var nameSpace = SF.NamespaceDeclaration(SF.ParseName("Ramjet.Math.FixedPoint"));
+            var nameSpace = SF.NamespaceDeclaration(SF.ParseName("Ramjet.Mathematics.FixedPoint"));
 
             var type = SF.StructDeclaration(fType.name)
                 .AddModifiers(SF.Token(SK.PublicKeyword))
@@ -406,7 +408,11 @@ namespace CodeGeneration {
             
             Note: we construct the result by new struct(), which is quite slow.
 
-            Todo: Simplify the code for generating all mixed-type variants
+            Todo:
+            - Simplify the code for generating all mixed-type variants
+            - Figure out how best to handle unsigned cases becoming signed
+                - Example: u32 - u32 -> s32; the unsigneds are not closed
+                under subtraction
             */
 
             var opAddSelf = SF.ParseMemberDeclaration($@"
@@ -417,8 +423,8 @@ namespace CodeGeneration {
 
             var opSubSelf = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {fType.name} operator -({fType.name} lhs, {fType.name} rhs) {{
-                    return new {fType.name}({wordCastOpt}(lhs.v - rhs.v));
+                public static {fType.signedName} operator -({fType.name} lhs, {fType.name} rhs) {{
+                    return new {fType.signedName}(({fType.signedWordType})(lhs.v - rhs.v));
                 }}");
 
             var opIncrSelf = SF.ParseMemberDeclaration($@"

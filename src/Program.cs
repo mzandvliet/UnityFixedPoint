@@ -87,6 +87,17 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     power in this, much like dithering can make a world of difference
     in image processing.
 
+    * Interacting Signed and Unsigned Values *
+
+    u32 - u32 -> s32
+
+    This is causing some grief. The uints are not technically closed under
+    subtraction. Many ways to deal with this:
+
+    - u32 - u32 -> s32 enforce this method signature. Let users case back to
+    u32 if they feel that is right (warning: some values become unrepresentable)
+    - use p-adic numbers, since there is no sign bit then
+
     === Literals ===
 
     If we're going with edgy, juicy manipulations that border on altering the
@@ -129,6 +140,11 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     the operations remains the same? Since in each op we have
     up and down casting to different word lengths, that might
     be where it trips up.
+
+    = SIMD Emulation =
+
+    https://archive.eetasia.com/www.eetasia.com/ART_8800453603_499495_NT_0045eaff.HTM
+    Could be feasible. :)
 
     === CIL Optimization ===
 

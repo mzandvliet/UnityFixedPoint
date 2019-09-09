@@ -15,8 +15,24 @@ using SK = Microsoft.CodeAnalysis.CSharp.SyntaxKind;
     - Write a mat_2x2, and other specialized cases
 
     3x3 might also be handy, as 2x2 homogeneous
-
     You can generalize over fixed point type and all that.
+
+    Problem:
+
+    - mixed precision arithmetic in a single matrix
+
+    2d homogeneous transform matrix is a 3x3 matrix, which
+    can do both rotation, scaling, and translation.
+
+    Translation numbers will typically involve large integer
+    parts. But rotation with uniform scale (very common case)
+    will typically involve only fractional numbers.
+
+    This presents us with the following idea: We could have
+    this homogeneous matrix with different fixed point number
+    types for the various coefficients, depending on what
+    they actually do.
+
  */
 
 namespace CodeGeneration {
@@ -32,7 +48,7 @@ namespace CodeGeneration {
                 "System.Runtime.InteropServices",
                 "UnityEngine",
                 "Unity.Mathematics",
-                "Ramjet.Math.FixedPoint",
+                "Ramjet.Mathematics.FixedPoint",
             };
 
             var usings = new SyntaxList<UsingDirectiveSyntax>(
@@ -40,7 +56,7 @@ namespace CodeGeneration {
 
             var unit = SF.CompilationUnit().WithUsings(usings);
 
-            var nameSpace = SF.NamespaceDeclaration(SF.ParseName("Ramjet.Math.LinearAlgebra"));
+            var nameSpace = SF.NamespaceDeclaration(SF.ParseName("Ramjet.Mathematics.LinearAlgebra"));
 
             var type = SF.StructDeclaration(typeName)
                 .AddModifiers(SF.Token(SK.PublicKeyword))

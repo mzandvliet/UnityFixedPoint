@@ -20,7 +20,7 @@ namespace CodeGeneration {
                 "System.Runtime.InteropServices",
                 "UnityEngine",
                 "Unity.Mathematics",
-                "Ramjet.Math.FixedPoint"
+                "Ramjet.Mathematics.FixedPoint"
             };
 
             var usings = new SyntaxList<UsingDirectiveSyntax>(
@@ -29,7 +29,7 @@ namespace CodeGeneration {
             var unit = SF.CompilationUnit()
                 .WithUsings(usings);
 
-            var nameSpace = SF.NamespaceDeclaration(SF.ParseName("Ramjet.Math.Complex"));
+            var nameSpace = SF.NamespaceDeclaration(SF.ParseName("Ramjet.Mathematics.Complex"));
 
             var type = SF.StructDeclaration(typeName)
                 .AddModifiers(SF.Token(SK.PublicKeyword))
