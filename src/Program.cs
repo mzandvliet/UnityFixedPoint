@@ -117,6 +117,12 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     sizeof(q24_7) // This doesn't compile without unsafe. Compiler cannot infer
     const size from members...
 
+    === Operators ===
+
+    Pow, Exp, Sqrt, Sin, etc.
+    
+    Try to implement Pow using shifting, such that we can use integer arithmetic for it as well.
+
     === Burst Auto Vectorization ??? ===
 
     In Unity.Mathematics sourcecode readme, it says:
@@ -155,6 +161,18 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     instead of 
 
     new qn_m(intValue)
+
+    ------
+
+    === Generator Type System ===
+
+    Not having higher kinded types in the form of Traits mean
+    you can't work with trait bounds.
+
+    Want to figure out the maximum value of the backing integer
+    type? You can't easily know this, because you have a System.Type,
+    which doesn't know the actual types are bounded by integers of
+    various sizes.
 
     ------
 
@@ -289,7 +307,8 @@ namespace CodeGeneration {
 
             // Loop over given type, generate all variants
             void GenerateFTypes(WordType word) {
-                for (int fractionalBits = 0; fractionalBits < (int)word.Size; fractionalBits++) {
+                int maxFractionalBits = (int)word.Size - (word.Sign == WordSign.Signed ? 1 : 0);
+                for (int fractionalBits = 0; fractionalBits <= maxFractionalBits; fractionalBits++) {
                     var fType = new FixedPointType(
                         word,
                         fractionalBits
