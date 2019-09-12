@@ -338,7 +338,6 @@ namespace CodeGeneration {
             };
 
             var types = new List<(FixedPointType type, SyntaxTree tree)>();
-
             foreach (var fType in fTypes) {
                 types.Add(FixedPointTypeGenerator.GenerateType(fType, fTypes, options));
             }

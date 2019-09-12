@@ -85,9 +85,18 @@ namespace CodeGeneration {
 
             var zero = SF.ParseMemberDeclaration($@"public static readonly {typeName} Zero = {typeName}.FromInt(0);");
 
+            var rawArgs = coefficientFields.Select((coeff, index) => $@"{fType.wordType} {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
+            var rawAssignments = coefficientFields.Select((coeff, index) => $@"{CoefficientNames[index]} = {fType.name}.Raw({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
+            var fromRaw = SF.ParseMemberDeclaration($@"
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {typeName} Raw({rawArgs}) {{
+                    return new {typeName} {{
+                        {rawAssignments}
+                    }};
+                }}");
+
             var constructorArgs = coefficientFields.Select((coeff, index) => $@"{fType.name} {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
             var constructorAssignments = coefficientFields.Select((coeff, index) => $@"this.{CoefficientNames[index]} = {CoefficientNames[index]}").Aggregate((a, b) => a + ";\n" + b) + ";";
-
             var constructor = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public {typeName}({constructorArgs}) {{
@@ -95,17 +104,8 @@ namespace CodeGeneration {
                 }}");
 
             type = type.AddMembers(
+                fromRaw,
                 constructor);
-
-            var fromIntArgs = coefficientFields.Select((coeff, index) => $@"int {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
-            var fromIntAssignments = coefficientFields.Select((coeff, index) => $@"{fType.name}.FromInt({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
-            var fromInt = SF.ParseMemberDeclaration($@"
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} FromInt({fromIntArgs}) {{
-                    return new {typeName}(
-                        {fromIntAssignments}
-                    );
-                }}");
 
             // var toInt2 = SF.ParseMemberDeclaration($@"
             //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -114,54 +114,6 @@ namespace CodeGeneration {
             //             {scalarTypeName}.ToInt(f.r),
             //             {scalarTypeName}.ToInt(f.i));
             //     }}");
-
-            var fromFloatArgs = coefficientFields.Select((coeff, index) => $@"float {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
-            var fromFloatAssignments = coefficientFields.Select((coeff, index) => $@"{fType.name}.FromFloat({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
-            var fromFloat = SF.ParseMemberDeclaration($@"
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} FromFloat({fromFloatArgs}) {{
-                    return new {typeName}(
-                        {fromFloatAssignments}
-                    );
-                }}");
-
-            // var toFloat2 = SF.ParseMemberDeclaration($@"
-            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            //     public static float2 ToFloat({typeName} f) {{
-            //         return new float2(
-            //             {scalarTypeName}.ToFloat(f.r),
-            //             {scalarTypeName}.ToFloat(f.i));
-            //     }}");
-
-            var fromDoubleArgs = coefficientFields.Select((coeff, index) => $@"double {CoefficientNames[index]}").Aggregate((a, b) => a + ", " + b);
-            var fromDoubleAssignments = coefficientFields.Select((coeff, index) => $@"{fType.name}.FromDouble({CoefficientNames[index]})").Aggregate((a, b) => a + ",\n" + b);
-            var fromDouble = SF.ParseMemberDeclaration($@"
-                [MethodImpl(MethodImplOptions.AggressiveInlining)]
-                public static {typeName} FromFloat({fromDoubleArgs}) {{
-                    return new {typeName}(
-                        {fromDoubleAssignments}
-                    );
-                }}");
-
-            // var toDouble2 = SF.ParseMemberDeclaration($@"
-            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            //     public static double2 ToDouble({typeName} f) {{
-            //         return new double2(
-            //             {scalarTypeName}.ToDouble(f.r),
-            //             {scalarTypeName}.ToDouble(f.i));
-            //     }}");
-
-            type = type.AddMembers(
-                fromInt,
-                fromFloat,
-                fromDouble
-            );
-            // toInt2,
-            // fromFloat,
-            // toFloat2,
-            // fromDouble,
-            // toDouble2);
-
 
             var opAddInstructions = coefficientFields.Select((coeff, index) => $@"lhs.{CoefficientNames[index]} + rhs.{CoefficientNames[index]}")
                 .Aggregate((a, b) => a + ", \n" + b);
@@ -208,6 +160,30 @@ namespace CodeGeneration {
                 opSub,
                 opMulScalarRight,
                 opDivScalarRight);
+
+            var opMulIntRightInstructions = coefficientFields.Select((coeff, index) => $@"lhs.{CoefficientNames[index]} * rhs")
+                .Aggregate((a, b) => a + ", \n" + b);
+            var opMulIntRight = SF.ParseMemberDeclaration($@"
+               [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {typeName} operator *({typeName} lhs, int rhs) {{
+                    return new {typeName}(
+                        {opMulScalarRightInstructions}
+                    );
+                }}");
+
+            var opDivIntRightInstructions = coefficientFields.Select((coeff, index) => $@"lhs.{CoefficientNames[index]} / rhs")
+                .Aggregate((a, b) => a + ", \n" + b);
+            var opDivIntRight = SF.ParseMemberDeclaration($@"
+               [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                public static {typeName} operator /({typeName} lhs, int rhs) {{
+                    return new {typeName}(
+                        {opDivScalarRightInstructions}
+                    );
+                }}");
+
+            type = type.AddMembers(
+                opMulIntRight,
+                opDivIntRight);
 
             /*
             Todo:
@@ -320,7 +296,7 @@ namespace CodeGeneration {
 
             var toStringReplaceList = coefficientFields.Select((coeff, index) => $@"{{{index}:0.000}}")
                .Aggregate((a, b) => a + ", " + b);
-            var toStringCoeffs = coefficientFields.Select((coeff, index) => $@"{fType.name}.ToFloat(this.{CoefficientNames[index]})")
+            var toStringCoeffs = coefficientFields.Select((coeff, index) => $@"(float)this.{CoefficientNames[index]}")
                .Aggregate((a, b) => a + ", " + b);
             var toString = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
