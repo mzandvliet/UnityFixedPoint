@@ -172,8 +172,10 @@ namespace CodeGeneration {
     }
 
     public static class FixedPointTypeGenerator {
+        private const string SafetyChecksPreProcessorDefine = "FIXED_POINT_SAFETY_CHECKS";
+
         public class Options {
-            public bool AddRangeChecks = true;
+            public bool AddSafetyChecks = true;
         }
 
         /*
@@ -306,7 +308,7 @@ namespace CodeGeneration {
             /* === Helpers === */
 
             var intRangeCheckOpt = "";
-            if (options.AddRangeChecks) {
+            if (options.AddSafetyChecks) {
                 intRangeCheckOpt = GenerateRangeCheck(
                     fType,
                     "x",
@@ -315,7 +317,7 @@ namespace CodeGeneration {
     }
 
             var floatRangeCheckOpt = "";
-            if (options.AddRangeChecks) {
+            if (options.AddSafetyChecks) {
                 floatRangeCheckOpt = GenerateRangeCheck(
                     fType,
                     "x",
@@ -324,7 +326,7 @@ namespace CodeGeneration {
             }
 
             var doubleRangeCheckOpt = "";
-            if (options.AddRangeChecks) {
+            if (options.AddSafetyChecks) {
                 doubleRangeCheckOpt = GenerateRangeCheck(
                     fType,
                     "x",
@@ -533,11 +535,15 @@ namespace CodeGeneration {
             */
 
             var opMulSelfOverflowCheck = "";
-            if (options.AddRangeChecks) {
+            if (options.AddSafetyChecks) {
+                var absResult = fType.signBit == 1 ? "Math.Abs(result)" : "result";
                 opMulSelfOverflowCheck = $@"
-                if ((result & MulOverflowMask) > 0) {{
+                #if {SafetyChecksPreProcessorDefine}
+                if (({absResult} & MulOverflowMask) > 0) {{
                     Debug.LogErrorFormat(""{fType.name} multiplication of {{0}} * {{1}} overflowed!"", lhs, rhs);
-                }}";
+                }}
+                #endif";
+                
             }
             var opMulSelf = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -824,11 +830,13 @@ namespace CodeGeneration {
              */
             return $@"
                 if ({variableName} < {minName} || {variableName} > {maxName}) {{
+                    #if {SafetyChecksPreProcessorDefine}
                     throw new System.ArgumentException(string.Format(
                         ""value {{0}} lies outside of representable range [{{1}} , {{2}}] for {fType.name}"",
                         {variableName},
                         {minName.ToString()},
                         {maxName.ToString()}));
+                    #endif
                 }}";
         }
 

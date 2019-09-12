@@ -334,7 +334,7 @@ namespace CodeGeneration {
             Console.WriteLine("Generating FixedPoint types...");
 
             var options = new FixedPointTypeGenerator.Options {
-                AddRangeChecks = true,
+                AddSafetyChecks = true,
             };
 
             var types = new List<(FixedPointType type, SyntaxTree tree)>();
