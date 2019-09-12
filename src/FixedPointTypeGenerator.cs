@@ -65,7 +65,7 @@ namespace CodeGeneration {
         }
     }
 
-    public class FixedPointType {
+    public class FixedPointType : IEquatable<FixedPointType> {
         public static readonly Dictionary<WordType, Type> DotNetWordTypes = new Dictionary<WordType, Type> {
             { new WordType(WordSize.B8 , WordSign.Unsigned),    typeof(byte) },
             { new WordType(WordSize.B16, WordSign.Unsigned),    typeof(ushort) },
@@ -141,6 +141,34 @@ namespace CodeGeneration {
         public static string GetTypeName(int integerBits, int fractionalBits, int signBit) {
             return string.Format("q{0}{1}_{2}", signBit == 1 ? "s" : "u", integerBits, fractionalBits);
         }
+
+        public static bool operator ==(FixedPointType lhs, FixedPointType rhs) {
+            return Equals(lhs, rhs);
+        }
+
+        public static bool operator !=(FixedPointType lhs, FixedPointType rhs) {
+            return !Equals(lhs, rhs);
+        }
+
+        public bool Equals(FixedPointType other) {
+            return word == other.word && fractionalBits == other.fractionalBits;
+        }
+
+        public override bool Equals(object obj) {
+            var fType = (FixedPointType)obj;
+            if (fType != null) {
+                return fType == this;
+            }
+            return false;
+        }
+
+        public override int GetHashCode() {
+            return (int)(word.GetHashCode() * 0xEEE2123Bu + fractionalBits * 0x9F3FDC37u);
+        }
+
+        public override string ToString() {
+            return base.ToString();
+        }
     }
 
     public static class FixedPointTypeGenerator {
@@ -152,7 +180,7 @@ namespace CodeGeneration {
             Todo:
             - Find out the difference between .WithX and .AddX
          */
-        public static (FixedPointType, SyntaxTree) GenerateType(in FixedPointType fType, in List<FixedPointType> fTypes, in Options options) {
+        public static (FixedPointType, SyntaxTree) GenerateType(in FixedPointType fType, in IList<FixedPointType> fTypes, in Options options) {
             string fractionalBitMask =  GenerateFractionalMaskLiteral(fType);
             string integerBitMask =     GenerateFractionalMaskLiteral(fType, "1", "0");
 
@@ -488,12 +516,6 @@ namespace CodeGeneration {
                     return new {fType.name}({wordCast}(result >> Scale));
                 }}");
 
-            // var opMulSelf = SF.ParseMemberDeclaration($@"
-            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            //     public static {fType.name} operator *({fType.name} lhs, {fType.name} rhs) {{
-            //         return new {fType.name}(({fType.wordType})((lhs.v * rhs.v) >> Scale));
-            //     }}");
-
             /*
             Division
 
@@ -615,20 +637,20 @@ namespace CodeGeneration {
                         where we can yield a balanced result by doing
                         return new qs3_4((sbyte)(lhs.v + (sbyte)((rhs.v + (1 << 1)) >> 2)));
                      */
-                    mixedOp = GenerateAdder(fType, rhType);
+                    mixedOp = GenerateAddOperator(fType, rhType);
                     type = type.AddMembers(mixedOp);
 
-                    mixedOp = GenerateSubber(fType, rhType);
+                    mixedOp = GenerateSubtractOperator(fType, rhType);
                     type = type.AddMembers(mixedOp);
                 }
 
                 // Mul and Div ops
 
                 if (rhType.name != fType.name && fType.fractionalBits >= rhType.fractionalBits) {
-                    mixedOp = GenerateMultiplier(fType, rhType);
+                    mixedOp = GenerateMultiplyOperator(fType, rhType);
                     type = type.AddMembers(mixedOp);
 
-                    mixedOp = GenerateDivisor(fType, rhType);
+                    mixedOp = GenerateDivideOperator(fType, rhType);
                     type = type.AddMembers(mixedOp);
                 }
             }
@@ -758,7 +780,7 @@ namespace CodeGeneration {
                 }}";
         }
 
-        private static MemberDeclarationSyntax GenerateAdder(FixedPointType lhType, FixedPointType rhType) {
+        private static MemberDeclarationSyntax GenerateAddOperator(FixedPointType lhType, FixedPointType rhType) {
             /*
                 Todo:
                 - decide whether return type is lhType or rhType
@@ -789,7 +811,7 @@ namespace CodeGeneration {
             return op;
         }
 
-        private static MemberDeclarationSyntax GenerateSubber(FixedPointType lhType, FixedPointType rhType) {
+        private static MemberDeclarationSyntax GenerateSubtractOperator(FixedPointType lhType, FixedPointType rhType) {
             int signedShift = lhType.fractionalBits - rhType.fractionalBits;
             string shiftOp = signedShift >= 0 ? "<<" : ">>";
             int shiftAmount = Math.Abs(signedShift);
@@ -808,7 +830,7 @@ namespace CodeGeneration {
         /*
         Generates a multiplier that returns the type of the left-hand-side argument.
          */
-        private static MemberDeclarationSyntax GenerateMultiplier(FixedPointType lhType, FixedPointType rhType) {
+        private static MemberDeclarationSyntax GenerateMultiplyOperator(FixedPointType lhType, FixedPointType rhType) {
             /*
             Todo:
 
@@ -843,7 +865,7 @@ namespace CodeGeneration {
             return op;
         }
 
-        private static MemberDeclarationSyntax GenerateDivisor(FixedPointType lhType, FixedPointType rhType) {
+        private static MemberDeclarationSyntax GenerateDivideOperator(FixedPointType lhType, FixedPointType rhType) {
             /*
             Todo: Not performing any rounding with half tricks here yet,
             need to work out what the right thing is to do.

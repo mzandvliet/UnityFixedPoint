@@ -10,17 +10,22 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 /*
     Todo:
 
-    - mixed-type vector ops
+    - finish mixed-type ops (vector, int, etc)
+    - casting operators
     - mul and div by simple fractions, like 2/1, 1/4, etc.
     - automated testing
     - halfEpsilon for fractionalBits = 0
     - negative fractionalBits, and extended scale types?
-    - Does Burst vectorize these types?
-        - Before that: right now burst actually fails to compile Fixed code
-        because it cannot resolve the LinearAlgebra library.
+    - Play nice with Burst autovectorization
     - Optional overflow handling
     - Rounding / Jittering
         - This does not trivially extend to higher linear algebra types
+    - Improved type specification for generator
+        - Could parse Unity client code for specific instructions
+        to generate desired types, could even do this live, with a
+        Roslyn analyzer? On-Demand type generation while programming...
+        - "It looks like you're trying to use an ungenerated type, do
+        you want to generate it?"
 
     - Generate some other things:
         - Linear Algebra
@@ -202,7 +207,40 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
  */
 
 namespace CodeGeneration {
-    public static class Config {
+    public class GeneratorConfig {
+
+        public IList<FixedPointType> PrimitiveTypes {
+            get => _primitiveTypes;
+        }
+        
+        private List<FixedPointType> _primitiveTypes = new List<FixedPointType> {
+            new FixedPointType(new WordType(WordSize.B8, WordSign.Signed), 4),
+            new FixedPointType(new WordType(WordSize.B8, WordSign.Signed), 6),
+            new FixedPointType(new WordType(WordSize.B8, WordSign.Signed), 7),
+            new FixedPointType(new WordType(WordSize.B8, WordSign.Unsigned), 0),
+            new FixedPointType(new WordType(WordSize.B8, WordSign.Unsigned), 7),
+            new FixedPointType(new WordType(WordSize.B8, WordSign.Unsigned), 8),
+
+            new FixedPointType(new WordType(WordSize.B16, WordSign.Signed), 12),
+            new FixedPointType(new WordType(WordSize.B16, WordSign.Signed), 9),
+            new FixedPointType(new WordType(WordSize.B16, WordSign.Signed), 14),
+            new FixedPointType(new WordType(WordSize.B32, WordSign.Signed), 16),
+            new FixedPointType(new WordType(WordSize.B16, WordSign.Unsigned), 8),
+
+            new FixedPointType(new WordType(WordSize.B32, WordSign.Signed), 12),
+            new FixedPointType(new WordType(WordSize.B32, WordSign.Unsigned), 12),
+        };
+
+        /* Todo: derived types:
+        vec_n
+        mat
+        complex
+        proj
+        etc
+        */
+    }
+
+    public static class OutputConfig {
         public const string LibraryNameFixedPoint = "FixedPoint";
         public const string LibraryNameComplex = "Complex";
         public const string LibraryNameLinearAlgebra = "LinearAlgebra";
@@ -216,64 +254,7 @@ namespace CodeGeneration {
 
     class Program  {
         public static void Main(string[] args) {
-            // TestStuff();
-
             GenerateLibraries();
-        }
-
-        private static void TestStuff() {
-            /* 
-            In which we try to figure out correct rounding behaviour
-            for division.
-
-            In this example I get the best results when I increment
-            by ONE before division, for positive numbers.
-
-            For division I need to decrement by ONE first.
-
-            --
-
-            Be aware that choice of rounding technique is never
-            trivial.
-
-            - Truncation
-            - Always rounding towards zero
-            - Biased rounding (where exact value of 0.5 is always rounded up)
-            - jittered rounding, etc.
-             */
-
-            // int scale = 4;
-            // short roundingValue = 0;//(short)(1 << (scale));
-
-            // int aInt = -5;
-            // int bInt = 3;
-
-            // short a = (short)(aInt << scale);
-            // short b = (short)(bInt << scale);
-            // short c = (short)(((a << scale ) + roundingValue) / b);
-
-            // double fractScale = (double)(1 << scale);
-            // Console.WriteLine(a / fractScale);
-            // Console.WriteLine(b / fractScale);
-            // Console.WriteLine(c / fractScale);
-
-            // Console.WriteLine((c / fractScale) - (aInt / (double)bInt));
-
-            // Adding a negative rational, do we ever need rounding?
-
-            Console.WriteLine(-3/2);
-
-            // --------------------
-
-            // int scale = 8;
-            // short a = (short)(0x0100);
-            // short b = (short)(0x00ff);
-
-            // double fractScale = (double)(1 << scale);
-            // Console.WriteLine(a / fractScale);
-            // Console.WriteLine(b / fractScale);
-            // Console.WriteLine((a - b) / fractScale);
-            // Console.WriteLine((256 - (a - b)) / fractScale);
         }
 
         private static void GenerateLibraries() {
@@ -281,28 +262,26 @@ namespace CodeGeneration {
             Console.WriteLine();
 
             // Clean output folder
-            if (Directory.Exists(Config.OutputPathLib)) {
-                Directory.Delete(Config.OutputPathLib, true);
+            if (Directory.Exists(OutputConfig.OutputPathLib)) {
+                Directory.Delete(OutputConfig.OutputPathLib, true);
             }
             // Ensure directory structure
-            Directory.CreateDirectory(Config.OutputPathLib);
-            Directory.CreateDirectory(Config.OutputPathSource);
+            Directory.CreateDirectory(OutputConfig.OutputPathLib);
+            Directory.CreateDirectory(OutputConfig.OutputPathSource);
 
-            var fixedPointTypes = GenerateFixedPointTypes(Config.LibraryNameFixedPoint);
+            // var fTypes = GenerateAllFixedPointTypeDefinitions();
+            var fTypes = new GeneratorConfig().PrimitiveTypes;
+            fTypes = ComplementWithSignedTypeDefinitions(fTypes);
+
+            var fixedPointTypes = GenerateFixedPointTypes(OutputConfig.LibraryNameFixedPoint, fTypes);
             // var complexTypes = GenerateComplexTypes(Config.LibraryNameComplex, fixedPointTypes);
-            var linalgTypes = GenerateLinearAlgebraTypes(Config.LibraryNameLinearAlgebra, fixedPointTypes);
+            var linalgTypes = GenerateLinearAlgebraTypes(OutputConfig.LibraryNameLinearAlgebra, fixedPointTypes);
 
             Console.WriteLine();
             Console.WriteLine("All done!");
         }
 
-        private static List<(FixedPointType type, SyntaxTree tree)> GenerateFixedPointTypes(string libName) {
-            Console.WriteLine("Generating FixedPoint types...");
-
-            var options = new FixedPointTypeGenerator.Options {
-                AddRangeChecks = true,
-            };
-
+        private static IList<FixedPointType> GenerateAllFixedPointTypeDefinitions() {
             var fTypes = new List<FixedPointType>();
 
             // Loop over given type, generate all variants
@@ -323,11 +302,40 @@ namespace CodeGeneration {
 
             // Generate 16-bit fixed point types
             GenerateFTypes(new WordType(WordSize.B16, WordSign.Signed));
-            GenerateFTypes(new WordType(WordSize.B16, WordSign.Unsigned)); // Todo: q0_WordSize, is it included?
+            GenerateFTypes(new WordType(WordSize.B16, WordSign.Unsigned));
 
             // Generate 8-bit fixed point types
             GenerateFTypes(new WordType(WordSize.B8, WordSign.Signed));
-            GenerateFTypes(new WordType(WordSize.B8, WordSign.Unsigned)); // Todo: q0_WordSize, is it included?
+            GenerateFTypes(new WordType(WordSize.B8, WordSign.Unsigned));
+
+            return fTypes;
+        }
+
+        private static IList<FixedPointType> ComplementWithSignedTypeDefinitions(IList<FixedPointType> fTypes) {
+            var newTypes = new List<FixedPointType>(fTypes);
+
+            foreach (var type in fTypes) {
+                if (type.signBit == 0) {
+                    int signedFTypeIntegerBits = type.signBit == 1 ?
+                        type.integerBits :
+                        Math.Max(1, type.integerBits - 1);
+
+                    var complementType = new FixedPointType(type.signedWord, type.wordLength - signedFTypeIntegerBits - 1);
+                    if (!newTypes.Contains(complementType)) {
+                        newTypes.Add(complementType);
+                    }
+                }
+            }
+
+            return newTypes;
+        }
+
+        private static List<(FixedPointType type, SyntaxTree tree)> GenerateFixedPointTypes(string libName, in IList<FixedPointType> fTypes) {
+            Console.WriteLine("Generating FixedPoint types...");
+
+            var options = new FixedPointTypeGenerator.Options {
+                AddRangeChecks = true,
+            };
 
             var types = new List<(FixedPointType type, SyntaxTree tree)>();
 
@@ -359,7 +367,7 @@ namespace CodeGeneration {
 
             // Compile types into library, including needed references
             var references = ReferenceLoader.LoadUnityReferences();
-            ReferenceLoader.AddGeneratedLibraryReference(references, Config.LibraryNameFixedPoint);
+            ReferenceLoader.AddGeneratedLibraryReference(references, OutputConfig.LibraryNameFixedPoint);
 
             var compilationOptions = new CSharpCompilationOptions(
                 outputKind: OutputKind.DynamicallyLinkedLibrary,
@@ -398,7 +406,7 @@ namespace CodeGeneration {
 
             // Compile types into library, including needed references
             var references = ReferenceLoader.LoadUnityReferences();
-            ReferenceLoader.AddGeneratedLibraryReference(references, Config.LibraryNameFixedPoint);
+            ReferenceLoader.AddGeneratedLibraryReference(references, OutputConfig.LibraryNameFixedPoint);
 
             var compilationOptions = new CSharpCompilationOptions(
                 outputKind: OutputKind.DynamicallyLinkedLibrary,
@@ -427,8 +435,8 @@ namespace CodeGeneration {
             // and output dll and pdb to disk
             var dllName = libName + ".dll";
             var pdbName = libName + ".pdb";
-            var dllOutputPath = Path.Join(Config.OutputPathLib, dllName);
-            var pdbOutputPath = Path.Join(Config.OutputPathLib, pdbName);
+            var dllOutputPath = Path.Join(OutputConfig.OutputPathLib, dllName);
+            var pdbOutputPath = Path.Join(OutputConfig.OutputPathLib, pdbName);
             var emitResult = compilation.Emit(
                 dllOutputPath,
                 pdbOutputPath);
@@ -445,21 +453,23 @@ namespace CodeGeneration {
             }
 
             // Copy the resulting files to our Unity project
-            if (Config.CopyToUnityProject) {
-                if (!Directory.Exists(Config.OutputPathLibSecondary)) {
-                    Directory.CreateDirectory(Config.OutputPathLibSecondary);
+            if (OutputConfig.CopyToUnityProject) {
+                if (!Directory.Exists(OutputConfig.OutputPathLibSecondary)) {
+                    Directory.CreateDirectory(OutputConfig.OutputPathLibSecondary);
                 }
-                File.Copy(dllOutputPath, Path.Join(Config.OutputPathLibSecondary, dllName), true);
-                File.Copy(pdbOutputPath, Path.Join(Config.OutputPathLibSecondary, pdbName), true);
+                File.Copy(dllOutputPath, Path.Join(OutputConfig.OutputPathLibSecondary, dllName), true);
+                File.Copy(pdbOutputPath, Path.Join(OutputConfig.OutputPathLibSecondary, pdbName), true);
             }
 
             // Optionally also write out each generated type as C# code text files
             // useful for debugging
-            if (Config.EmitSourceCodeToUnityProject) {
-                string outputPathSource = Path.Join(Config.OutputPathLibSecondary, libName);
-                if (!Directory.Exists(outputPathSource)) {
-                    Directory.CreateDirectory(outputPathSource);
+            if (OutputConfig.EmitSourceCodeToUnityProject) {
+                string outputPathSource = Path.Join(OutputConfig.OutputPathLibSecondary, libName);
+                if (Directory.Exists(outputPathSource)) {
+                    Directory.Delete(outputPathSource, true);
                 }
+
+                Directory.CreateDirectory(outputPathSource);
 
                 foreach (var type in types) {
                     var code = type.GetCompilationUnitRoot().NormalizeWhitespace().ToFullString();
@@ -557,7 +567,7 @@ namespace CodeGeneration {
         }
 
         public static void AddGeneratedLibraryReference(IList<PortableExecutableReference> references, string libraryName) {
-            var libDllPath = Path.Join(Config.OutputPathLib, libraryName + ".dll");
+            var libDllPath = Path.Join(OutputConfig.OutputPathLib, libraryName + ".dll");
             references.Add(MetadataReference.CreateFromFile(libDllPath));
         }
     }
