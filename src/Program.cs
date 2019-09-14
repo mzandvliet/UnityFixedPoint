@@ -10,6 +10,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 /*
     Todo:
 
+    - vectorizable multiplication operators
     - finish mixed-type ops (vector, int, etc)
     - casting operators
     - mul and div by simple fractions, like 2/1, 1/4, etc.
@@ -26,13 +27,10 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
         Roslyn analyzer? On-Demand type generation while programming...
         - "It looks like you're trying to use an ungenerated type, do
         you want to generate it?"
-
     - Generate some other things:
         - Linear Algebra
         - Geometric Algebra
         - Bezier curves
-        - Burst jobs
-        - Uh oh...
     - Use traits to encapsulate +, -, *, /, avoiding boilerplate
         - Scalar fields
         - Vector fields
@@ -70,6 +68,9 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     Conversely, we can generate all variants but then strip all the unused ones
     after a Unity build.
 
+    Current solution: client specifies which types are desired, then triggers
+    the generator.
+
     * Computation Graphs *
 
     A Tensorflow-like syntax that specifies computation graphs in a functional,
@@ -88,9 +89,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     * Dithering *
 
     8 bit particle simulations and the like would really benefit from
-    a solid dithering approach. I believe there is tremendous computational
-    power in this, much like dithering can make a world of difference
-    in image processing.
+    a solid dithering approach.
 
     * Interacting Signed and Unsigned Values *
 
@@ -99,28 +98,9 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     This is causing some grief. The uints are not technically closed under
     subtraction. Many ways to deal with this:
 
-    - u32 - u32 -> s32 enforce this method signature. Let users case back to
+    - u32 - u32 -> s32 enforce this method signature? Let users case back to
     u32 if they feel that is right (warning: some values become unrepresentable)
     - use p-adic numbers, since there is no sign bit then
-
-    === Literals ===
-
-    If we're going with edgy, juicy manipulations that border on altering the
-    C# language anyway, I nominate we do something for easier declarations
-    of literal values.
-
-    Instead of altering the language, why not extend your keyboard shortcuts
-    and IDE with macros?
-
-    Have a dedicated function modifier key, then press another key to choose
-    type. That command tells the IDE to generate new vec3_27_4(*cursor*).
-
-    * Const Declarations *
-
-    Not supported by C#. Minor issue though, right?
-
-    sizeof(q24_7) // This doesn't compile without unsafe. Compiler cannot infer
-    const size from members...
 
     === Operators ===
 
@@ -128,34 +108,13 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
     
     Try to implement Pow using shifting, such that we can use integer arithmetic for it as well.
 
-    === Burst Auto Vectorization ??? ===
+    === Burst Auto Vectorization ===
 
-    In Unity.Mathematics sourcecode readme, it says:
+    - streamline types used for accumulator in multipliers. Going wide
+    to double-word is causing Burst to bail out of vectorization
 
-    "In addition to this, the Burst compiler is able to recognize these types and provide
-    the optimized SIMD type for the running CPU on all supported platforms (x64, ARMv7a...etc.)"
-
-    Does that mean Burst only looks for literal instances of their math types
-    and do a specific replace with each? If so, and that is the only way
-    to get it to vectorize anything, none of my fixed point code will
-    vectorize at all....
-
-    If it doesn't I'll be rather disappointed, and perhaps be moved to say:
-    sod it, I'm taking all this into Rust and not looking back.
-
-    Edit: It vectorizes **sometimes**
-
-    https://stackoverflow.com/questions/8193601/sse-multiplication-16-x-uint8-t
-
-    Hypothesis: Burst might only be able to vectorize if the type across
-    the operations remains the same? Since in each op we have
-    up and down casting to different word lengths, that might
-    be where it trips up.
-
-    = SIMD Emulation =
-
-    https://archive.eetasia.com/www.eetasia.com/ART_8800453603_499495_NT_0045eaff.HTM
-    Could be feasible. :)
+    - study branching, inline-if, math.select:
+    https://forum.unity.com/threads/math-selects-performance-vs-inline-if.532282/
 
     === CIL Optimization ===
 
