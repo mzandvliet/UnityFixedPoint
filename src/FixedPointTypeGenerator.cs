@@ -65,6 +65,10 @@ namespace CodeGeneration {
         }
     }
 
+    /// <summary>Stores information about the fixed point type itself, as well
+    /// as several dual and associated types commonly used in its
+    /// arithmetic.</summary>
+    /// Not in the cleverest way, mind you...
     public class FixedPointType : IEquatable<FixedPointType> {
         public static readonly Dictionary<WordType, Type> DotNetWordTypes = new Dictionary<WordType, Type> {
             { new WordType(WordSize.B8 , WordSign.Unsigned),    typeof(byte) },
@@ -82,14 +86,17 @@ namespace CodeGeneration {
 
         public readonly WordType word;
         public readonly WordType doubleWord;
+        public readonly WordType unsignedWord;
         public readonly WordType signedWord;
 
         public readonly Type wordType;
         public readonly Type doubleWordType;
+        public readonly Type unsignedWordType;
         public readonly Type signedWordType;
 
         public string wordTypeName => wordType.Name;
         public string doubleWordTypeName => doubleWordType.Name;
+        public string unsignedWordTypeName => unsignedWordType.Name;
         public string signedWordTypeName => signedWordType.Name;
 
         public readonly int fractionalBits;
@@ -107,7 +114,6 @@ namespace CodeGeneration {
             get => (int)doubleWord.Size;
         }
 
-
         public FixedPointType(WordType word, int fractionalBits) {
             this.word = word;
             this.fractionalBits = fractionalBits;
@@ -117,10 +123,12 @@ namespace CodeGeneration {
             }
 
             doubleWord = new WordType((WordSize)(wordLength * 2), word.Sign);
+            unsignedWord = new WordType(word.Size, WordSign.Unsigned);
             signedWord = new WordType(word.Size, WordSign.Signed);
 
             wordType =              DotNetWordTypes[word];
             doubleWordType =       DotNetWordTypes[doubleWord];
+            unsignedWordType = DotNetWordTypes[unsignedWord];
             signedWordType =        DotNetWordTypes[signedWord];
 
             this.name = GetTypeName(integerBits, fractionalBits, signBit);
@@ -135,7 +143,6 @@ namespace CodeGeneration {
                 integerBits :
                 Math.Max(1, integerBits - 1);
             this.signedName = GetTypeName(signedFTypeIntegerBits, wordLength - signedFTypeIntegerBits - 1, 1);
-            
         }
 
         public static string GetTypeName(int integerBits, int fractionalBits, int signBit) {
@@ -253,6 +260,8 @@ namespace CodeGeneration {
             
             var fractionMask = SF.ParseMemberDeclaration(
                 $@"private const {fType.wordTypeName} FractionMask = unchecked(({fType.wordTypeName}){fractionalBitMask});");
+            var fractionMaskU = SF.ParseMemberDeclaration(
+                $@"private const {fType.unsignedWordTypeName} FractionMaskU = unchecked(({fType.unsignedWordTypeName}){fractionalBitMask});");
             var integerMask = SF.ParseMemberDeclaration(
                 $@"private const {fType.wordTypeName} IntegerMask = unchecked(({fType.wordTypeName}){integerBitMask});");
             var multiplyOverflowMask = SF.ParseMemberDeclaration(
@@ -283,6 +292,7 @@ namespace CodeGeneration {
                 scale,
                 halfScale,
                 fractionMask,
+                fractionMaskU,
                 integerMask,
                 multiplyOverflowMask,
                 zero,
@@ -532,6 +542,13 @@ namespace CodeGeneration {
             overflow checking.
 
             Todo: Sign-aware overflow checking
+
+            Keeping everything 100% overflow-safe, while also working
+            exclusively in WordLength domain, is actually really tricky.
+
+            Can we leverage modular or hierarchical number spaces to
+            absorb ballooning scale, while keeping code paths linear
+            in wordlength?
             */
 
             var opMulSelfOverflowCheck = "";
@@ -543,17 +560,67 @@ namespace CodeGeneration {
                     Debug.LogErrorFormat(""{fType.name} multiplication of {{0}} * {{1}} overflowed!"", lhs, rhs);
                 }}
                 #endif";
-                
+            }
+
+            var signResultOpt = "";
+            if (fType.signBit == 1) {
+                signResultOpt = $@"
+                var signResult = ((lhs.v ^ rhs.v) & SignMask) != 0 ? -1 : 1;
+                ";
+            }
+            var signResultMultiplyOpt = "";
+            if (fType.signBit == 1) {
+                signResultMultiplyOpt = $@"
+                * signResult
+                ";
             }
             var opMulSelf = SF.ParseMemberDeclaration($@"
                 [MethodImpl(MethodImplOptions.AggressiveInlining)]
                 public static {fType.name} operator *({fType.name} lhs, {fType.name} rhs) {{
-                    {fType.doubleWordTypeName} lhsLong = lhs.v;
-                    {fType.doubleWordTypeName} rhsLong = rhs.v;
-                    {fType.doubleWordTypeName} result = {doubleWordCastOpt}((lhsLong * rhsLong) + Half);
-                    {opMulSelfOverflowCheck}
-                    return Raw({wordCast}(result >> Scale));
+                    var lhsAbs = ({fType.unsignedWordTypeName})Math.Abs(lhs.v);
+                    var rhsAbs = ({fType.unsignedWordTypeName})Math.Abs(rhs.v);
+                    var lhslo = lhsAbs & FractionMaskU;
+                    var lhshi = lhsAbs >> Scale;
+                    var rhslo = rhsAbs & FractionMaskU;
+                    var rhshi = rhsAbs >> Scale;
+                    var lo_lo = lhslo * rhslo;
+                    var lo_hi_a = lhslo * rhshi;
+                    var lo_hi_b = rhslo * lhshi;
+                    var hi_hi = lhshi * rhshi;
+
+                    {signResultOpt}
+
+                    return Raw(
+                        ({fType.wordTypeName})(
+                            ({fType.signedWordTypeName})((lo_lo >> Scale) +
+                            lo_hi_a + lo_hi_b +
+                            (hi_hi << Scale))
+                            {signResultMultiplyOpt}
+                        )
+                    );
                 }}");
+
+            // Double-Word Length implementation of multiplication, which is much simpler
+
+            // var opMulSelfOverflowCheck = "";
+            // if (options.AddSafetyChecks) {
+            //     var absResult = fType.signBit == 1 ? "Math.Abs(result)" : "result";
+            //     opMulSelfOverflowCheck = $@"
+            //     #if {SafetyChecksPreProcessorDefine}
+            //     if (({absResult} & MulOverflowMask) > 0) {{
+            //         Debug.LogErrorFormat(""{fType.name} multiplication of {{0}} * {{1}} overflowed!"", lhs, rhs);
+            //     }}
+            //     #endif";
+            // }
+            // var opMulSelf = SF.ParseMemberDeclaration($@"
+            //     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            //     public static {fType.name} operator *({fType.name} lhs, {fType.name} rhs) {{
+            //         {fType.doubleWordTypeName} lhsLong = lhs.v;
+            //         {fType.doubleWordTypeName} rhsLong = rhs.v;
+            //         {fType.doubleWordTypeName} result = {doubleWordCastOpt}((lhsLong * rhsLong) + Half);
+            //         {opMulSelfOverflowCheck}
+            //         return Raw({wordCast}(result >> Scale));
+            //     }}");
 
             /*
             Division
@@ -772,10 +839,29 @@ namespace CodeGeneration {
             return maskBuilder.ToString();
         }
 
+        // private static string GenerateOverflowCheckMaskLiteral(in FixedPointType fType) {
+        //     var maskBuilder = new StringBuilder();
+
+        //     maskBuilder.Append("0b");
+        //     maskBuilder.Append(fType.signBit == 1 ? "0" : "1");
+        //     for (int i = 1; i < fType.wordLength - fType.fractionalBits; i++) {
+        //         if (i > 0 && i % 4 == 0) {
+        //             maskBuilder.Append("_");
+        //         }
+        //         maskBuilder.Append("1");
+        //     }
+        //     for (int i = fType.wordLength - fType.fractionalBits; i < fType.doubleWordLength; i++) {
+        //         if (i > 0 && i % 4 == 0) {
+        //             maskBuilder.Append("_");
+        //         }
+        //         maskBuilder.Append("0");
+        //     }
+
+        //     return maskBuilder.ToString();
+        // }
+
         private static string GenerateOverflowCheckMaskLiteral(in FixedPointType fType) {
             var maskBuilder = new StringBuilder();
-
-
 
             maskBuilder.Append("0b");
             maskBuilder.Append(fType.signBit == 1 ? "0" : "1");
@@ -801,13 +887,13 @@ namespace CodeGeneration {
             int wordLength = (int)fType.word.Size;
 
             maskBuilder.Append("0b");
-            for (int i = 0; i < fType.integerBits; i++) {
+            for (int i = 0; i <= fType.integerBits; i++) {
                 if (i > 0 && i % 4 == 0) {
                     maskBuilder.Append("_");
                 }
                 maskBuilder.Append(intBitChar);
             }
-            for (int i = fType.integerBits; i < wordLength; i++) {
+            for (int i = fType.integerBits+1; i < wordLength; i++) {
                 if (i > 0 && i % 4 == 0) {
                     maskBuilder.Append("_");
                 }
